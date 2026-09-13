@@ -1,0 +1,2 @@
+# local tooling only — the game itself has no dependencies to install
+node_modules/
