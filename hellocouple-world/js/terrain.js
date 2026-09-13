@@ -16,35 +16,31 @@ import * as TEX from './textures.js';
 
 /** Mountains and hills: [x, z, height, radius, sharpness] */
 const MASSIFS = [
-  [-430, 54, 76, 175, 1.5],   // Sunset Point headland
-  [326, -389, 92, 200, 1.6],  // northern peak
-  [-355, -305, 38, 170, 1.15],// waterfall plateau
-  [360, -247, 30, 130, 1.2],  // campsite hill
-  [-210, 200, 22, 150, 1.0],  // south-west rise
-  [447, -138, 16, 96, 1.2],   // lighthouse point
-  [-120, -120, 26, 190, 0.9], // central rise
-  [90, 330, 18, 150, 1.0],    // southern swell
+  [-206, 26, 54, 86, 1.5],   // Sunset Point headland
+  [156, -186, 64, 96, 1.6],  // northern peak
+  [-170, -146, 26, 82, 1.15], // waterfall plateau
+  [172, -118, 20, 62, 1.2],  // campsite hill
+  [64, -74, 19, 88, 1.0],    // gentle inland rise
+  [-96, 96, 14, 70, 1.0],    // south-west rise
+  [214, -66, 11, 46, 1.2],   // lighthouse point
 ];
 
 /** Mirror Lake bowl. */
-const LAKE = { x: -209, z: -146, r: 84, depth: 34 };
+const LAKE = { x: -100, z: -70, r: 44, depth: 24 };
 
 export class Terrain {
   constructor(quality) {
     this.quality = quality;
     this.half = WORLD.halfSize;
     this.size = this.half * 2;
-    /** Physics/placement resolution — deliberately independent of graphics quality.
-     *  Kept at ~2.5 m spacing whatever the world size. */
-    this.res = Math.round((this.size / 2.5) / 8) * 8;
+    /** Physics/placement resolution — deliberately independent of graphics quality. */
+    this.res = 300;
     this.step = this.size / this.res;
     this.heights = new Float32Array((this.res + 1) * (this.res + 1));
     this.zones = [];     // flatten discs, applied before paths
-    this.rects = [];     // flatten rectangles (the city plateau)
     this.overrides = [];  // flatten discs applied AFTER paths (they win)
     this.paths = [];      // roads + rivers (flatten along a polyline)
     this.mesh = null;
-    this.chunks = [];
     this._v = new THREE.Vector3();
   }
 
@@ -53,10 +49,10 @@ export class Terrain {
   /** Wobbling coastline radius for a given bearing. */
   shoreRadius(angle) {
     return WORLD.shoreRadius
-      + 54 * Math.sin(angle * 3 + 0.7)
-      + 27 * Math.sin(angle * 5 - 1.2)
-      + 15 * Math.sin(angle * 7 + 2.4)
-      + 21 * noise2(Math.cos(angle) * 2.4, Math.sin(angle) * 2.4, 101);
+      + 26 * Math.sin(angle * 3 + 0.7)
+      + 13 * Math.sin(angle * 5 - 1.2)
+      + 7 * Math.sin(angle * 7 + 2.4)
+      + 10 * noise2(Math.cos(angle) * 2.4, Math.sin(angle) * 2.4, 101);
   }
 
   /** Raw island height before any flattening. */
@@ -69,18 +65,18 @@ export class Terrain {
     if (s <= 0) {
       // Sea floor: a shelf that falls away from the beach.
       const off = -s * R;
-      const shelf = -1.2 - 16 * smoothstep(0, 70, off) - 14 * smoothstep(60, 320, off);
-      return shelf + fbm(x * 0.009, z * 0.009, 3, 5) * 2.4 * smoothstep(0, 60, off);
+      const shelf = -1.2 - 16 * smoothstep(0, 46, off) - 12 * smoothstep(40, 190, off);
+      return shelf + fbm(x * 0.012, z * 0.012, 3, 5) * 2.2 * smoothstep(0, 40, off);
     }
 
     // Wide, gently sloping beach, then a low bluff up onto the plateau.
-    let h = 3.1 * smoothstep(0, 0.040, s);
-    h += 13.0 * smoothstep(0.068, 0.19, s);
+    let h = 2.9 * smoothstep(0, 0.052, s);
+    h += 11.5 * smoothstep(0.088, 0.225, s);
 
     // Rolling interior.
-    const inland = smoothstep(0.085, 0.30, s);
-    h += (fbm(x * 0.0040, z * 0.0040, 4, 17) * 0.5 + 0.5) * 26 * inland;
-    h += fbm(x * 0.016, z * 0.016, 3, 29) * 2.6 * inland;
+    const inland = smoothstep(0.10, 0.32, s);
+    h += (fbm(x * 0.0062, z * 0.0062, 4, 17) * 0.5 + 0.5) * 22 * inland;
+    h += fbm(x * 0.022, z * 0.022, 3, 29) * 2.2 * inland;
 
     // Mountains.
     for (let i = 0; i < MASSIFS.length; i++) {
@@ -117,25 +113,13 @@ export class Terrain {
   }
 
   /**
-   * Level a rectangle. Downtown needs a flat *rectangle*, not a disc: a disc
-   * big enough to cover the grid's corners also reaches the coast and turns
-   * the shoreline into a wall.
-   */
-  addFlatRect(x, z, halfW, halfD, feather = 60, target = null, strength = 1) {
-    this.rects.push({ x, z, halfW, halfD, feather, target: target ?? this.sampleBase(x, z), strength });
-    return this;
-  }
-
-  /**
    * Level along a polyline — used for roads, paths and river beds.
    * @param {Array<[number,number]>} pts
    * @param {object} opts width, feather, drop (offset below natural ground), smooth
    */
   addPath(pts, { width = 6, feather = 9, drop = 0, smooth = 0.55, strength = 1 } = {}) {
     // Pre-smooth elevations along the path so roads have gentle grades.
-    // Sampled through the flat rectangles so a road crossing the downtown
-    // plateau follows it instead of dragging the raw ground back up.
-    const elev = pts.map(p => this.applyRects(p[0], p[1], this.sampleBase(p[0], p[1])) - drop);
+    const elev = pts.map(p => this.sampleBase(p[0], p[1]) - drop);
     for (let pass = 0; pass < 6; pass++) {
       for (let i = 1; i < elev.length - 1; i++) {
         elev[i] = lerp(elev[i], (elev[i - 1] + elev[i + 1]) * 0.5, smooth);
@@ -143,19 +127,6 @@ export class Terrain {
     }
     this.paths.push({ pts, elev, width, feather, strength });
     return this;
-  }
-
-  /** Flat rectangles only — used when sampling road grades. */
-  applyRects(x, z, h) {
-    for (let i = 0; i < this.rects.length; i++) {
-      const r = this.rects[i];
-      const dx = Math.abs(x - r.x) - r.halfW;
-      const dz = Math.abs(z - r.z) - r.halfD;
-      const d = Math.hypot(Math.max(dx, 0), Math.max(dz, 0));
-      if (d > r.feather) continue;
-      h = lerp(h, r.target, smoothstep(r.feather, 0, d) * r.strength);
-    }
-    return h;
   }
 
   /** Apply all registered zones/paths to a base height. */
@@ -167,7 +138,6 @@ export class Terrain {
       const w = smoothstep(zo.r + zo.feather, zo.r, d) * zo.strength;
       h = lerp(h, zo.target, w);
     }
-    h = this.applyRects(x, z, h);
     for (let i = 0; i < this.paths.length; i++) {
       const p = this.paths[i];
       const pts = p.pts;
@@ -271,15 +241,57 @@ export class Terrain {
 
   /* -------------------------------------------------------------- mesh */
 
-  /**
-   * Build the terrain as a grid of chunks rather than one huge plane. A single
-   * mesh covering a 1.4 km island can never be frustum-culled, so most of the
-   * island would be drawn every frame no matter where you stood.
-   */
   build(scene, quality) {
-    const CH = 8;                                  // chunks per side
-    const seg = Math.max(8, Math.round(quality.terrainSegments / CH));
-    const chunkSize = this.size / CH;
+    const seg = quality.terrainSegments;
+    const geo = new THREE.PlaneGeometry(this.size, this.size, seg, seg);
+    geo.rotateX(-Math.PI / 2);
+
+    const pos = geo.attributes.position;
+    const count = pos.count;
+    const colors = new Float32Array(count * 3);
+    const blend = new Float32Array(count * 3);
+    const uv = geo.attributes.uv;
+    const col = new THREE.Color();
+
+    for (let i = 0; i < count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const h = this.height(x, z);
+      pos.setY(i, h);
+      // Tile textures by world units instead of across the whole plane.
+      uv.setXY(i, x / 7, z / 7);
+    }
+    geo.computeVertexNormals();
+
+    const nrm = geo.attributes.normal;
+    for (let i = 0; i < count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
+      const steep = 1 - nrm.getY(i);
+
+      // Blend weights: sand / grass / rock.
+      const sand = clamp(1 - smoothstep(3.2, 5.6, h), 0, 1);
+      const rock = clamp(Math.max(smoothstep(0.30, 0.62, steep), smoothstep(40, 58, h)), 0, 1);
+      let grass = clamp(1 - sand - rock, 0, 1);
+      const sum = sand + grass + rock || 1;
+      blend[i * 3] = sand / sum;
+      blend[i * 3 + 1] = grass / sum;
+      blend[i * 3 + 2] = rock / sum;
+
+      // Gentle large-scale tint variation keeps big fields from looking flat.
+      const tint = fbm(x * 0.004, z * 0.004, 3, 71) * 0.5 + 0.5;
+      const dry = smoothstep(3.0, 9.0, h);
+      col.setRGB(
+        lerp(1.04, 0.92, tint),
+        lerp(0.96, 1.06, tint) * lerp(0.98, 1.0, dry),
+        lerp(0.90, 1.0, tint)
+      );
+      // Wet sand darkens toward the waterline, then the sea floor goes muted.
+      if (h < 2.2) col.multiplyScalar(lerp(1.0, 0.70, smoothstep(2.2, 0.1, h)));
+      if (h < 0) col.multiplyScalar(lerp(1.0, 0.78, smoothstep(0, -3, h)));
+      colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
+    }
+
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aBlend', new THREE.BufferAttribute(blend, 3));
 
     const grassMap = TEX.grassTexture();
     const sandMap = TEX.sandTexture();
@@ -291,6 +303,7 @@ export class Terrain {
       roughness: 0.96,
       metalness: 0.0,
     });
+
     // Blend three ground textures with the per-vertex weights.
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.sandMap = { value: sandMap };
@@ -310,91 +323,23 @@ export class Terrain {
         `);
       mat.userData.shader = shader;
     };
-    this.material = mat;
 
-    const root = new THREE.Group();
-    root.name = 'terrain';
-    const col = new THREE.Color();
-    this.chunks = [];
-
-    for (let cz = 0; cz < CH; cz++) {
-      for (let cx = 0; cx < CH; cx++) {
-        const ox = -this.half + chunkSize * (cx + 0.5);
-        const oz = -this.half + chunkSize * (cz + 0.5);
-
-        const geo = new THREE.PlaneGeometry(chunkSize, chunkSize, seg, seg);
-        geo.rotateX(-Math.PI / 2);
-        geo.translate(ox, 0, oz);
-
-        const pos = geo.attributes.position;
-        const count = pos.count;
-        const colors = new Float32Array(count * 3);
-        const blend = new Float32Array(count * 3);
-        const uv = geo.attributes.uv;
-
-        // Normals come from the heightfield, not from the chunk's own triangles:
-        // per-chunk computeVertexNormals() leaves a visible lighting seam along
-        // every chunk boundary.
-        const nrm = geo.attributes.normal;
-        const n = new THREE.Vector3();
-        for (let i = 0; i < count; i++) {
-          const x = pos.getX(i), z = pos.getZ(i);
-          pos.setY(i, this.height(x, z));
-          uv.setXY(i, x / 7, z / 7);               // tile by world units
-          this.normal(x, z, n);
-          nrm.setXYZ(i, n.x, n.y, n.z);
-        }
-        pos.needsUpdate = true;
-        nrm.needsUpdate = true;
-        for (let i = 0; i < count; i++) {
-          const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
-          const steep = 1 - nrm.getY(i);
-
-          const sand = clamp(1 - smoothstep(3.2, 5.6, h), 0, 1);
-          const rock = clamp(Math.max(smoothstep(0.30, 0.62, steep), smoothstep(48, 68, h)), 0, 1);
-          let grass = clamp(1 - sand - rock, 0, 1);
-          const sum = sand + grass + rock || 1;
-          blend[i * 3] = sand / sum;
-          blend[i * 3 + 1] = grass / sum;
-          blend[i * 3 + 2] = rock / sum;
-
-          const tint = fbm(x * 0.0025, z * 0.0025, 3, 71) * 0.5 + 0.5;
-          const dry = smoothstep(3.0, 9.0, h);
-          col.setRGB(
-            lerp(1.04, 0.92, tint),
-            lerp(0.96, 1.06, tint) * lerp(0.98, 1.0, dry),
-            lerp(0.90, 1.0, tint)
-          );
-          // Wet sand darkens toward the waterline, then the sea floor goes muted.
-          if (h < 2.2) col.multiplyScalar(lerp(1.0, 0.70, smoothstep(2.2, 0.1, h)));
-          if (h < 0) col.multiplyScalar(lerp(1.0, 0.78, smoothstep(0, -3, h)));
-          colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
-        }
-
-        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geo.setAttribute('aBlend', new THREE.BufferAttribute(blend, 3));
-        geo.computeBoundingSphere();
-
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.receiveShadow = true;
-        mesh.castShadow = false;
-        mesh.matrixAutoUpdate = false;
-        mesh.updateMatrix();
-        root.add(mesh);
-        this.chunks.push(mesh);
-      }
-    }
-
-    scene.add(root);
-    this.mesh = root;
-    return root;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    mesh.name = 'terrain';
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    scene.add(mesh);
+    this.mesh = mesh;
+    return mesh;
   }
 
   dispose() {
-    for (const c of this.chunks || []) c.geometry.dispose();
-    this.material?.dispose();
-    this.chunks = null;
-    this.mesh = null;
+    if (this.mesh) {
+      this.mesh.geometry.dispose();
+      this.mesh.material.dispose();
+    }
   }
 }
 

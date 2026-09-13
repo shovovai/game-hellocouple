@@ -1,14 +1,9 @@
 # HelloCouple World
 
-An open-world island city that runs in a browser tab. Drive through downtown
-traffic, park up and walk the sidewalks, then head out along the coast road to
-find hidden beaches, a waterfall, a lighthouse and a secret grove — with a
-companion who follows you everywhere.
-
-The island is about 1.2 km across. Downtown is a 25-block grid of towers,
-mid-rise and shopfronts with working signals, pedestrians and moving traffic;
-outside it are beaches, forest, a lake, a pier, a campsite and Sunset Point,
-joined by a ring road you can drive.
+A compact, hand-built 3D open-world island that runs in a browser tab. Explore a
+vacation island, find hidden places, collect things, complete quests, fish from
+the pier, share a café date, customise your character, and watch the sun go down
+from Sunset Point — with a companion who follows you everywhere.
 
 Built with HTML5, CSS3, ES modules, WebGL and Three.js. No backend, no build
 step, no external assets, no tracking.
@@ -21,8 +16,7 @@ The game is plain static files, but it uses ES modules, so it must be served
 over HTTP (opening `index.html` from the filesystem will not work).
 
 ```bash
-git clone https://github.com/shovovai/game-hellocouple.git
-cd game-hellocouple
+cd hellocouple-world
 
 # any static server works — pick one
 python3 -m http.server 8080
@@ -38,12 +32,12 @@ There is nothing to install and nothing to build. Three.js is vendored at
 
 ## 2. Deploying
 
-Copy the repository contents anywhere that serves static files:
+Copy the `hellocouple-world/` folder anywhere that serves static files:
 
 | Host | How |
 | --- | --- |
 | Apache / Nginx | drop the folder in the web root |
-| Laravel / Symfony | drop it in `public/hellocouple-world/` → served at that path |
+| Laravel / Symfony | drop it in `public/` → served at `/hellocouple-world/` |
 | Netlify / Vercel / Cloudflare Pages | set the folder as the publish directory |
 | GitHub Pages | commit the folder, enable Pages |
 | S3 / any CDN | upload the folder, serve `index.html` as the index |
@@ -95,7 +89,6 @@ touches elements inside `#game-root`.
 | Input | Action |
 | --- | --- |
 | `W` `A` `S` `D` / arrow keys | Move |
-| `E` at a car | Get in and drive (`E` again to get out) |
 | Mouse move (or drag) | Look around |
 | Mouse wheel | Zoom the camera in and out |
 | `Shift` | Sprint |
@@ -109,10 +102,6 @@ touches elements inside `#game-root`.
 | `F` | Fullscreen |
 | `Esc` | Pause menu, or close whatever is open |
 
-While driving: `W`/`S` accelerate and reverse, `A`/`D` steer, `Space` brakes,
-`E` gets out. The camera pulls back as you gain speed and the speedometer
-appears bottom-right.
-
 In photo mode: `W`/`A`/`S`/`D` fly, `Space` rises, `Ctrl` descends, `Shift`
 flies faster, the wheel changes the field of view.
 
@@ -122,8 +111,7 @@ Touch controls appear automatically on touch devices:
 
 - **Left half** — virtual joystick (push it to the edge to sprint).
 - **Right half** — swipe to look, pinch to zoom.
-- **Buttons** — `E` interact, `⤒` jump (brake while driving), `⚡` sprint
-  toggle, `▦` map, `☰` menu, `⎋` get out of the car.
+- **Buttons** — `E` interact, `⤒` jump, `⚡` sprint toggle, `▦` map, `☰` menu.
 
 ## 5. Performance settings
 
@@ -133,35 +121,23 @@ touch capability); Low / Medium / High override it.
 | | Low | Medium | High |
 | --- | --- | --- | --- |
 | Pixel ratio cap | 1.0 | 1.35 | 2.0 |
-| Terrain mesh | 192² | 288² | 416² |
-| Shadows | 1024 px | 2048 px | 3072 px |
-| Shadow distance | 130 m | 210 m | 280 m |
+| Terrain mesh | 140² | 200² | 280² |
+| Shadows | off | 1024 px | 2048 px |
 | Tree density | 45 % | 75 % | 100 % |
 | Grass | off | 55 % | 100 % |
-| Traffic cars | 10 | 22 | 34 |
-| Pedestrians | 12 | 26 | 40 |
 | Water shader | cheap | normal | full |
-| Draw distance | 900 m | 1400 m | 2000 m |
+| Draw distance | 760 m | 1050 m | 1400 m |
 
 Independent of the preset, the game always:
 
-- merges static props into batches per material **and** per 190 m cell, so draw
+- merges static props into batches per material **and** per 110 m cell, so draw
   calls stay low without breaking frustum culling;
-- splits the terrain into 8×8 chunks so most of a 1.2 km island is culled
-  rather than drawn (normals come from the heightfield, so there are no seams);
-- draws all traffic with InstancedMesh grouped by car kind and material role —
-  a whole city of cars costs about twenty draw calls, and forty pedestrians
-  six;
 - draws all vegetation with `InstancedMesh`, bucketed the same way;
 - keeps a pool of 5–7 real point lights that are reassigned each frame to the
   nearest active light sources (the island defines ~130 of them);
 - caps the device pixel ratio, shadow map size and shadow distance;
 - generates every texture procedurally at 64–256 px instead of shipping 4K maps;
 - hides distant NPCs and freezes off-screen wildlife instances.
-
-Measured on the shipped island: roughly 650 draw calls and 0.9 M triangles at
-Medium, and 1 200 / 2.3 M at High with the full draw distance. Auto-detect picks
-Medium on a typical laptop and Low on phones.
 
 Physics resolution is deliberately **independent of graphics quality**: the
 collision heightfield is always baked at 300², so the world feels identical on a
@@ -170,7 +146,7 @@ phone and on a desktop.
 ## 6. Project structure
 
 ```
-game-hellocouple/
+hellocouple-world/
 ├── index.html              markup for every UI surface
 ├── css/style.css           the complete UI stylesheet
 ├── vendor/three/           vendored Three.js (MIT) + its licence
@@ -190,9 +166,6 @@ game-hellocouple/
     ├── vegetation.js       instanced trees, bushes, grass, flowers, rocks
     ├── water.js            ocean, lake, rivers, waterfall
     ├── world.js            assembles the island and every location
-    ├── city.js             downtown: streets, blocks, towers, furniture
-    ├── vehicle.js          car models and arcade driving physics
-    ├── traffic.js          instanced AI traffic and pedestrians
     ├── daynight.js         sky, sun, moon, stars, the whole lighting rig
     ├── weather.js          sunny / cloudy / rain
     ├── character.js        procedural humanoid + blended animation
@@ -218,34 +191,6 @@ game-hellocouple/
 
 Almost everything is data in `js/config.js`. The world generator reads it, so
 new content needs no engine changes.
-
-### Adding a city block
-
-Downtown is generated from `buildCity()` in `layout.js`, which returns block
-rectangles, street centre-lines and intersections. Change `COLS`, `ROWS`,
-`BLOCK`, `AVENUE` and `STREET` there to resize the grid — the terrain plateau,
-the road network, the traffic graph and the map all follow automatically.
-
-Each block carries a `kind` (`plaza`, `tower`, `midrise`, `low`, `reserved`),
-and `city.js` has one builder per kind. To add a district type, add a kind in
-`buildCity()` and a branch in `buildBlock()`.
-
-Facades are shared materials built from `facadeTexture()` and
-`facadeLitTexture()` in `textures.js`; add an entry to `facadeSpecs` in
-`materials.js` and every block can use it. The emissive map is what lights the
-windows after dark.
-
-### Adding a car
-
-```js
-// vehicle.js → CAR_KINDS
-coupe: { w: 1.84, l: 4.2, h: 0.52, cabin: 0.5, nose: 1.1,
-         maxSpeed: 36, accel: 15, grip: 1.1, mass: 0.95, spoiler: true },
-```
-
-That is enough for it to appear parked downtown, in traffic, and in the row of
-drivable cars by the plaza. `makeCarModel()` reads the proportions; `Vehicle`
-reads the handling numbers. Optional flags: `boxy`, `bed`, `spoiler`, `taxi`.
 
 ### Adding a location
 

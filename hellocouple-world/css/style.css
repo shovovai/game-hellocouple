@@ -156,16 +156,6 @@ body{overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-se
   font:700 12px/1 var(--font);
 }
 
-#speedo{
-  position:absolute;right:16px;bottom:calc(18px + var(--safe-b));
-  padding:12px 16px 11px;border-radius:16px;min-width:132px;text-align:right;
-}
-.sp-num{font:700 30px/1 var(--font);font-variant-numeric:tabular-nums;letter-spacing:-.5px}
-.sp-num small{font:600 11px/1 var(--font);color:var(--ink-faint);margin-left:5px;letter-spacing:.08em}
-.sp-bar{margin-top:8px;height:4px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
-.sp-bar span{display:block;height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--aqua),var(--gold),var(--rose));transition:width .1s linear}
-.sp-name{margin-top:7px;font:600 10.5px/1 var(--font);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-faint)}
-
 #toast-stack{position:absolute;right:14px;bottom:calc(14px + var(--safe-b));display:flex;flex-direction:column;gap:8px;align-items:flex-end;max-width:min(340px,80vw)}
 .toast{
   background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
@@ -389,9 +379,6 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   .ov-tabs button{padding:8px 10px;font-size:12px}
 }
 @media (max-width:640px){
-  #speedo{min-width:104px;padding:9px 12px 8px;right:12px;bottom:calc(96px + var(--safe-b))}
-  .sp-num{font-size:22px}
-  .sp-name{display:none}
   #minimap-wrap{width:112px;height:112px}
   .hud-row{gap:6px}
   .stat-chip{padding:7px 10px;font-size:12.5px}

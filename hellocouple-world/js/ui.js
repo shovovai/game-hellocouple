@@ -30,8 +30,6 @@ export class UI {
       dialogue: $('dialogue'), dlgName: $('dlg-name'), dlgText: $('dlg-text'), dlgChoices: $('dlg-choices'),
       touch: $('touch-controls'), photo: $('photo-ui'), wheel: $('emote-wheel'),
       minimap: $('minimap'), tutorial: $('tutorial-card'), tutorialList: $('tutorial-list'),
-      speedo: $('speedo'), spKmh: $('sp-kmh'), spFill: $('sp-fill'), spName: $('sp-name'),
-      tbtnExit: $('tbtn-exitcar'),
       continueBtn: $('btn-continue'), profileLine: $('menu-profile-line'),
     };
     this.overlayTab = 'map';
@@ -162,18 +160,6 @@ export class UI {
     this.el.qtTitle.textContent = q.name;
     this.el.qtDesc.textContent = q.desc;
     this.el.qtProg.textContent = `${p.value} / ${p.target}`;
-  }
-
-  /** Speedometer, shown only while driving. */
-  setDriving(on, name = '') {
-    this.el.speedo.classList.toggle('hidden', !on);
-    this.el.tbtnExit?.classList.toggle('hidden', !on);
-    if (on) this.el.spName.textContent = name;
-  }
-
-  setSpeed(kmh, frac) {
-    this.el.spKmh.textContent = Math.round(kmh);
-    this.el.spFill.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
   }
 
   showPrompt(label) {

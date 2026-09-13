@@ -15,7 +15,7 @@ import * as TEX from './textures.js';
 import { mergeGeometries } from './batching.js';
 import { makeRng, fbm } from './noise.js';
 
-const CELL = 250;
+const CELL = 110;
 const M = () => materials();
 
 /* --------------------------------------------------------- wind shader */

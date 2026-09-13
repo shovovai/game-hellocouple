@@ -35,8 +35,6 @@ import { Shop } from './shop.js';
 import { Inventory } from './inventory.js';
 import { MapSystem } from './map.js';
 import { FishingGame, BoatRide } from './minigames.js';
-import { Vehicle } from './vehicle.js';
-import { TrafficSystem, PedestrianSystem } from './traffic.js';
 import { AudioEngine } from './audio.js';
 import { UI } from './ui.js';
 import { RemotePlayers, NullNetwork } from './net.js';
@@ -52,7 +50,6 @@ class Game {
     this.inInterior = null;
     this.photoMode = false;
     this.sitting = null;
-    this.driving = null;          // Vehicle the player is currently in
     this.autosaveTimer = 30;
     this.hudTimer = 0;
     this.fpsAcc = 0; this.fpsCount = 0; this.fps = 60;
@@ -99,7 +96,7 @@ class Game {
     this.renderer.setPixelRatio(1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.16;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -239,16 +236,6 @@ class Game {
 
     this.map = new MapSystem(this.terrain, this.network, this.locations, this.save);
     this.map.bake();
-
-    // ---- city life ----
-    this.traffic = new TrafficSystem(this.scene, this.terrain, this.physics, this.world.roadGraph, q);
-    this.pedestrians = new PedestrianSystem(this.scene, this.terrain, this.network.city, q);
-    this.vehicles = (this.world.drivableCars || []).map(car => {
-      const v = new Vehicle(car.model, this.terrain, this.physics, car.kind);
-      v.place(car.x, car.z, car.heading);
-      car.vehicle = v;
-      return v;
-    });
     this.boat = new BoatRide(this.terrain, WORLD.seaLevel);
     this.remote = new RemotePlayers(this.scene, NullNetwork);
 
@@ -373,11 +360,6 @@ class Game {
     const jump = c.consumeJump();
     const interact = c.consumeInteract();
 
-    if (this.driving) {
-      this._updateDriving(dt, move, interact, c);
-      return;
-    }
-
     if (this.boat.active) {
       this._updateBoat(dt, move, interact);
       return;
@@ -427,88 +409,10 @@ class Game {
     this.save.statMax('maxHeight', this.player.pos.y);
     const area = this.map.currentArea(this.player.pos);
     this._area = area;
-    if (area && area.id === 'town' && this.dayNight.state.night > 0.6) this.save.flag('cityNight');
     if (area && (area.id === 'beach' || area.id === 'sunsetBeach')) this.save.stat('timeAtBeach', dt);
     this.save.stat('playTime', dt);
 
     this.collectibles.update(dt, this.time, this.player.pos);
-  }
-
-  /** Player is behind the wheel: input drives the car, camera chases it. */
-  _updateDriving(dt, move, interact, c) {
-    const v = this.driving;
-    const braking = c.brakeHeld;
-    v.update(dt, { throttle: move.y, steer: move.x, brake: braking });
-    v.setBraking(braking || move.y < -0.2);
-
-    // passengers ride along
-    const back = { x: v.pos.x - Math.sin(v.heading) * 0.2, z: v.pos.z - Math.cos(v.heading) * 0.2 };
-    this.player.pos.set(back.x, v.pos.y + 0.9, back.z);
-    this.player.yaw = v.heading;
-    this.player.root.visible = false;
-    this.companion.pos.set(back.x, v.pos.y + 0.9, back.z);
-    this.companion.root.visible = false;
-
-    // camera sits further back and lower the faster you go
-    const speedFrac = Math.min(1, v.kmh / 120);
-    this.camRig.targetDistance = 10.5 + speedFrac * 5.0;
-    this.camRig.pitch = Math.max(this.camRig.pitch, 0.10);
-    this.camRig.update(dt, { x: v.pos.x, y: v.pos.y + 0.9, z: v.pos.z }, { lag: 7 });
-    this.camRig.shake = Math.max(this.camRig.shake, v.airborne ? 0.3 : 0);
-
-    this.ui.setSpeed(v.kmh, v.kmh / (v.spec.maxSpeed * 3.6));
-    this.save.stat('distance', Math.abs(v.speed) * dt);
-
-    // driving still discovers places and picks things up
-    const found = this.map.checkDiscovery(v.pos);
-    for (const def of found) {
-      this.audio.ui('discover');
-      this.ui.discovery(def.title, def.sub);
-      this.quests.visited(def.id);
-      this.save.addXp(35);
-    }
-    this.collectibles.update(dt, this.time, v.pos, 3.2);
-    this._area = this.map.currentArea(v.pos);
-
-    this.ui.showPrompt('Get out');
-    if (interact) this._exitCar();
-  }
-
-  _enterCar(car) {
-    const v = car.vehicle;
-    if (!v) return;
-    this.driving = v;
-    v.setLights(this.dayNight.state.night > 0.35);
-    this.player.root.visible = false;
-    this.companion.root.visible = false;
-    this.camRig.targetDistance = 9;
-    this.camRig.snap({ x: v.pos.x, y: v.pos.y, z: v.pos.z }, v.heading + Math.PI);
-    this.ui.setDriving(true, car.kind.charAt(0).toUpperCase() + car.kind.slice(1));
-    this.audio.ui('open');
-    this.save.flag('drove');
-    this.quests.activity('drive');
-    this.save.addXp(12);
-    if (!this.save.state.flags.drivingTip) {
-      this.save.flag('drivingTip');
-      this.ui.toast('Driving', 'W/S accelerate, A/D steer, Space brake, E to get out.', 'rose');
-    }
-  }
-
-  _exitCar() {
-    const v = this.driving;
-    if (!v) return;
-    const out = v.exitPoint();
-    const spot = this.world.safeSpot(out.x, out.z);
-    this.driving = null;
-    this.player.root.visible = true;
-    this.companion.root.visible = true;
-    this.player.teleport(spot.x, spot.z, v.heading + Math.PI / 2);
-    this.companion.teleportNear(this.player.pos, this.player.yaw);
-    this.camRig.targetDistance = 6.2;
-    this.camRig.snap(this.player.pos, this.player.yaw + Math.PI);
-    this.ui.setDriving(false);
-    this.ui.hidePrompt();
-    this.audio.ui('close');
   }
 
   _updateBoat(dt, move, interact) {
@@ -529,7 +433,7 @@ class Game {
   }
 
   _updateWorldSystems(dt) {
-    const focus = this.driving ? this.driving.pos : (this.player ? this.player.pos : this.camera.position);
+    const focus = this.player ? this.player.pos : this.camera.position;
     this.dayNight.update(dt, focus, this.camera);
     this.weather.update(dt, focus);
     this.veg.setWind(0.45 + this.weather.values.wind * 0.5);
@@ -539,12 +443,6 @@ class Game {
     this.world.update(dt, this.time, focus, this.dayNight.state.night);
     this.wildlife.update(dt, focus);
     this.npcSystem.update(dt, focus);
-    if (this.traffic) {
-      this.traffic.update(dt, focus);
-      this.traffic.setNight(this.dayNight.state.night);
-    }
-    if (this.pedestrians) this.pedestrians.update(dt, focus, this.time);
-    if (this.driving) this.driving.setLights(this.dayNight.state.night > 0.35);
     this.remote.update(dt, this.player);
     if (this.fishing.state === 'waiting' || this.fishing.state === 'active') {
       this.fishing.update(this.dtReal || dt);
@@ -623,7 +521,6 @@ class Game {
       case 'fountain': this._fountain(d.name); break;
       case 'shop': this.ui.openOverlay('shop'); break;
       case 'photo': this.togglePhotoMode(true); break;
-      case 'drive': this._enterCar(d.car); break;
       case 'talk': this._talk(d.npc); break;
       default:
         this.ui.toast('Nothing happens here yet');
@@ -973,7 +870,6 @@ class Game {
   }
 
   async fastTravel(id) {
-    if (this.driving) this._exitCar();
     const loc = this.locations.get(id);
     const def = LOCATIONS.find(l => l.id === id);
     if (!loc || !def || !this.save.isDiscovered(id) || !def.fastTravel) {
@@ -1107,8 +1003,6 @@ class Game {
    */
   _teardown() {
     this.collectibles?.dispose();
-    this.traffic?.dispose();
-    this.pedestrians?.dispose();
     this.wildlife?.dispose();
     this.water?.dispose();
     this.veg?.dispose();
@@ -1131,10 +1025,6 @@ class Game {
     this.scene.fog = null;
     this.physics?.clear();
     this.renderer.renderLists?.dispose?.();
-    this.driving = null;
-    this.traffic = null;
-    this.pedestrians = null;
-    this.vehicles = null;
     this.player = null;
     this.companion = null;
     this.world = null;

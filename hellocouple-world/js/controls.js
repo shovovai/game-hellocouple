@@ -24,8 +24,6 @@ export class Controls {
     this.sprint = false;
     this.jumpQueued = false;
     this.interactQueued = false;
-    /** Held (not queued) — doubles as the brake pedal while driving. */
-    this.brakeHeld = false;
     this.pointerLocked = false;
     this.touch = isTouchDevice();
     this.sensitivity = 1.0;
@@ -51,15 +49,12 @@ export class Controls {
       if (e.repeat) { if (prevent.has(e.code)) e.preventDefault(); return; }
       this.keys.add(e.code);
       if (prevent.has(e.code)) e.preventDefault();
-      if (e.code === 'Space') { this.jumpQueued = true; this.brakeHeld = true; }
+      if (e.code === 'Space') this.jumpQueued = true;
       if (e.code === 'KeyE') this.interactQueued = true;
       if (this.onKey) this.onKey(e.code, e);
     });
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.code);
-      if (e.code === 'Space') this.brakeHeld = false;
-    });
-    window.addEventListener('blur', () => { this.keys.clear(); this.sprint = false; this.brakeHeld = false; });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => { this.keys.clear(); this.sprint = false; });
   }
 
   /* ----------------------------------------------------------- mouse */
@@ -211,12 +206,11 @@ export class Controls {
       el.addEventListener('mousedown', down);
       el.addEventListener('mouseup', up);
     };
-    btn('tbtn-jump', () => { this.jumpQueued = true; this.brakeHeld = true; }, () => { this.brakeHeld = false; });
+    btn('tbtn-jump', () => { this.jumpQueued = true; });
     btn('tbtn-interact', () => { this.interactQueued = true; });
     btn('tbtn-sprint', () => { this._sprintToggle = !this._sprintToggle; });
     btn('tbtn-map', () => { this.onKey && this.onKey('KeyM'); });
     btn('tbtn-menu', () => { this.onKey && this.onKey('Escape'); });
-    btn('tbtn-exitcar', () => { this.interactQueued = true; });
   }
 
   /* ---------------------------------------------------------- polling */
@@ -257,7 +251,6 @@ export class Controls {
     this.move.x = this.move.y = 0;
     this.look.x = this.look.y = 0;
     this.jumpQueued = this.interactQueued = false;
-    this.brakeHeld = false;
     this.sprint = false;
   }
 }

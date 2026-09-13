@@ -124,14 +124,14 @@ export function asphaltTexture() {
 
 export function pavingTexture() {
   return drawTexture('paving', 256, (ctx, s) => {
-    ctx.fillStyle = '#adb1b4';
+    ctx.fillStyle = '#b9b3a8';
     ctx.fillRect(0, 0, s, s);
     const rng = makeRng(41);
     const tile = s / 4;
     for (let gy = 0; gy < 4; gy++) {
       for (let gx = 0; gx < 4; gx++) {
         const v = 0.88 + rng() * 0.22;
-        ctx.fillStyle = `rgb(${178 * v | 0},${182 * v | 0},${186 * v | 0})`;
+        ctx.fillStyle = `rgb(${185 * v | 0},${178 * v | 0},${166 * v | 0})`;
         ctx.fillRect(gx * tile + 1.5, gy * tile + 1.5, tile - 3, tile - 3);
       }
     }
@@ -461,136 +461,3 @@ export function disposeAll() {
   cache.forEach(t => t.dispose());
   cache.clear();
 }
-
-/* ------------------------------------------------------ city facades */
-
-/**
- * Building facade: a grid of windows with floor slabs and a ground-floor
- * shopfront. One 256px tile represents four storeys, so a tower is just a box
- * with the UVs scaled by its real height.
- */
-export function facadeTexture(key, o = {}) {
-  const {
-    wall = [188, 184, 176], glass = [96, 128, 152], frame = [232, 230, 224],
-    cols = 4, rows = 4, glassy = 0.0, seedNum = 1,
-  } = o;
-  return drawTexture('facade:' + key, 256, (ctx, S) => {
-    const rng = makeRng(seedNum * 131 + 7);
-    // wall base with subtle vertical banding
-    ctx.fillStyle = `rgb(${wall[0]},${wall[1]},${wall[2]})`;
-    ctx.fillRect(0, 0, S, S);
-    for (let i = 0; i < 900; i++) {
-      const v = 0.94 + rng() * 0.12;
-      ctx.fillStyle = `rgba(${wall[0] * v | 0},${wall[1] * v | 0},${wall[2] * v | 0},0.5)`;
-      ctx.fillRect(rng() * S, rng() * S, 2 + rng() * 7, 2 + rng() * 22);
-    }
-
-    const cw = S / cols, ch = S / rows;
-    for (let r = 0; r < rows; r++) {
-      // floor slab
-      ctx.fillStyle = `rgba(${wall[0] * 0.82 | 0},${wall[1] * 0.82 | 0},${wall[2] * 0.82 | 0},1)`;
-      ctx.fillRect(0, r * ch, S, Math.max(2, ch * 0.09));
-
-      for (let c = 0; c < cols; c++) {
-        const pad = cw * (glassy > 0.5 ? 0.06 : 0.17);
-        const x = c * cw + pad;
-        const y = r * ch + ch * 0.22;
-        const w = cw - pad * 2;
-        const h = ch * (glassy > 0.5 ? 0.66 : 0.55);
-
-        // frame
-        ctx.fillStyle = `rgb(${frame[0]},${frame[1]},${frame[2]})`;
-        ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
-
-        // glass with a sky-to-floor gradient and a little per-pane variance
-        const v = 0.72 + rng() * 0.55;
-        const g = ctx.createLinearGradient(x, y, x, y + h);
-        g.addColorStop(0, `rgb(${glass[0] * v * 1.25 | 0},${glass[1] * v * 1.25 | 0},${glass[2] * v * 1.3 | 0})`);
-        g.addColorStop(0.55, `rgb(${glass[0] * v | 0},${glass[1] * v | 0},${glass[2] * v | 0})`);
-        g.addColorStop(1, `rgb(${glass[0] * v * 0.62 | 0},${glass[1] * v * 0.62 | 0},${glass[2] * v * 0.7 | 0})`);
-        ctx.fillStyle = g;
-        ctx.fillRect(x, y, w, h);
-
-        // mullion
-        ctx.fillStyle = `rgba(${frame[0]},${frame[1]},${frame[2]},0.75)`;
-        ctx.fillRect(x + w / 2 - 1, y, 2, h);
-        if (rng() < 0.35) {   // a blind, half drawn
-          ctx.fillStyle = 'rgba(240,236,226,0.55)';
-          ctx.fillRect(x, y, w, h * (0.2 + rng() * 0.4));
-        }
-      }
-    }
-  }, { repeat: 1 });
-}
-
-/** Matching emissive map: the windows that are lit after dark. */
-export function facadeLitTexture(key, o = {}) {
-  const { cols = 4, rows = 4, glassy = 0.0, seedNum = 1, lit = 0.45 } = o;
-  return drawTexture('facadeLit:' + key, 256, (ctx, S) => {
-    const rng = makeRng(seedNum * 977 + 13);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, S, S);
-    const cw = S / cols, ch = S / rows;
-    const warm = ['#ffd9a0', '#ffc978', '#ffe9c4', '#cfe0ff'];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (rng() > lit) continue;
-        const pad = cw * (glassy > 0.5 ? 0.06 : 0.17);
-        const x = c * cw + pad;
-        const y = r * ch + ch * 0.22;
-        const w = cw - pad * 2;
-        const h = ch * (glassy > 0.5 ? 0.66 : 0.55);
-        ctx.fillStyle = warm[(rng() * warm.length) | 0];
-        ctx.globalAlpha = 0.55 + rng() * 0.45;
-        ctx.fillRect(x, y, w, h);
-      }
-    }
-    ctx.globalAlpha = 1;
-  }, { repeat: 1, srgb: true });
-}
-
-/** Ground-floor shopfront strip: glazing, awning line, signage band. */
-export function shopfrontTexture(key, o = {}) {
-  const { base = [58, 62, 72], accent = [226, 95, 134] } = o;
-  return drawTexture('shopfront:' + key, 256, (ctx, S) => {
-    const rng = makeRng(key.length * 51 + 3);
-    ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
-    ctx.fillRect(0, 0, S, S);
-    // signage band across the top
-    ctx.fillStyle = `rgb(${accent[0]},${accent[1]},${accent[2]})`;
-    ctx.fillRect(0, 0, S, S * 0.19);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    for (let i = 0; i < 5; i++) ctx.fillRect(26 + i * 42, S * 0.07, 26, 6);
-    // glazing
-    for (let i = 0; i < 4; i++) {
-      const x = 10 + i * (S - 20) / 4;
-      const w = (S - 20) / 4 - 8;
-      const g = ctx.createLinearGradient(x, S * 0.22, x, S);
-      g.addColorStop(0, 'rgba(190,215,235,0.95)');
-      g.addColorStop(0.6, 'rgba(120,150,175,0.9)');
-      g.addColorStop(1, 'rgba(70,92,112,0.95)');
-      ctx.fillStyle = g;
-      ctx.fillRect(x, S * 0.24, w, S * 0.66);
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillRect(x, S * 0.24, w, 3);
-      if (rng() < 0.5) {
-        ctx.fillStyle = 'rgba(255,240,220,0.45)';
-        ctx.fillRect(x + 6, S * 0.34, w - 12, S * 0.3);
-      }
-    }
-    // kerb shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(0, S * 0.92, S, S * 0.08);
-  }, { repeat: 1 });
-}
-
-/** Asphalt with a painted lane line down the middle of the tile. */
-export function roadLineTexture(key, dashed = true) {
-  return drawTexture('roadline:' + key, 128, (ctx, S) => {
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = '#eee4c8';
-    if (dashed) ctx.fillRect(S * 0.42, 0, S * 0.16, S * 0.55);
-    else ctx.fillRect(S * 0.42, 0, S * 0.16, S);
-  }, { repeat: 1 });
-}
-
