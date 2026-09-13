@@ -286,7 +286,7 @@ export class DayNight {
       : 'sunset';
     s.deepWaterColor.copy(k.fog).lerp(C(0x0a2c42), 0.62);
 
-    const fogMul = this.quality.fogDensity * (1 + this.cloudiness * 0.5);
+    const fogMul = this.quality.fogDensity * (this.fogScale ?? 1) * (1 + this.cloudiness * 0.5);
     s.fogDensity = (k.night > 0.5 ? 0.00105 : 0.00055) * fogMul;
     this.fog.color.copy(k.fog);
     this.fog.density = s.fogDensity;
@@ -357,7 +357,7 @@ export class DayNight {
     this._envTimer -= dt;
     if (this._envDirty && this._envTimer <= 0) {
       this._envDirty = false;
-      this._envTimer = 1.5;
+      this._envTimer = 4.0;   // PMREM is expensive and the sky barely moves
       this._refreshEnv();
     }
 

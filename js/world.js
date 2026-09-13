@@ -226,7 +226,18 @@ export class World {
 
   /* ------------------------------------------------------------ build */
 
+  /**
+   * Hand the world a cached scatter. Vegetation calls made during the build are
+   * then dropped and the recording is replayed instead, which skips the slope,
+   * path and physics probes that make scattering slow.
+   */
+  useVegetationCache(snap) {
+    this._vegReplay = snap;
+    this.veg.mute = true;
+  }
+
   *build(onProgress) {
+    if (!this._vegReplay) this.veg.record();
     const steps = [
       ['Carving roads', () => this.buildRoads()],
       ['Filling the rivers', () => this.buildRivers()],
@@ -1696,6 +1707,13 @@ export class World {
   /* --------------------------------------------------------- finalize */
 
   finalize() {
+    // Replay a cached scatter, if one was handed to us, before the buckets are
+    // frozen into InstancedMeshes.
+    if (this._vegReplay) {
+      this.veg.mute = false;
+      if (!this.veg.replay(this._vegReplay)) this._vegReplayFailed = true;
+      this._vegReplay = null;
+    }
     const vegStats = this.veg.finalize();
     const batch = batchStatic(this.static, 250);
     this.stats = {

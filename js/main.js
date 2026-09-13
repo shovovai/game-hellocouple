@@ -40,6 +40,8 @@ import { TrafficSystem, PedestrianSystem } from './traffic.js';
 import { AudioEngine } from './audio.js';
 import { UI } from './ui.js';
 import { RemotePlayers, NullNetwork } from './net.js';
+import * as CACHE from './cache.js';
+import { PerfGovernor, RUNTIME_TIERS, guessTier, tierIndex } from './perf.js';
 import { LocalVoice, VoiceChat } from './voice.js';
 import { VOICE } from './config.js';
 import { clamp } from './noise.js';
@@ -77,6 +79,75 @@ class Game {
   }
 
   /* --------------------------------------------------------- renderer */
+
+  /* ------------------------------------------------------- performance */
+
+  /**
+   * Start the frame-rate governor. The build-time quality preset has already
+   * fixed how much geometry exists; from here the governor only scales what can
+   * change mid-session, and it does it from measured frame times rather than
+   * from a guess about the hardware.
+   */
+  _setupGovernor() {
+    const pref = this.save.settings.quality;
+    const auto = !pref || pref === 'auto';
+    const start = auto ? guessTier({ touch: this.touch, renderer: this.renderer }) : pref;
+    this.perf = new PerfGovernor({
+      start,
+      // A manual choice pins the tier; auto is free to move within the range.
+      min: auto ? 'potato' : start,
+      max: auto ? 'high' : start,
+      onChange: (tier) => this._applyTier(tier),
+    });
+    this._applyTier(this.perf.tier);
+  }
+
+  /** Apply a runtime tier. Cheap enough to run mid-frame. */
+  _applyTier(tier) {
+    this.tier = tier;
+    const wantShadows = tier.shadows && this.save.settings.shadows !== false;
+
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tier.pixelRatio));
+    this.renderer.shadowMap.enabled = wantShadows;
+    // Redrawing the shadow map every frame is wasted on a slow device: the sun
+    // barely moves between frames.
+    this.renderer.shadowMap.autoUpdate = tier.shadowEvery <= 1;
+    this._shadowTick = 0;
+
+    this.camera.far = tier.drawDistance;
+    this.camera.updateProjectionMatrix();
+
+    const sun = this.dayNight?.sun;
+    if (sun) {
+      sun.castShadow = wantShadows;
+      if (sun.shadow.mapSize.width !== tier.shadowMapSize) {
+        sun.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
+        sun.shadow.map?.dispose();
+        sun.shadow.map = null;
+      }
+    }
+    if (this.dayNight) {
+      this.dayNight.quality.shadowDistance = Math.min(
+        this.quality.shadowDistance, Math.round(tier.drawDistance * 0.18));
+      this.dayNight.quality.shadowMapSize = tier.shadowMapSize;
+      this.dayNight.setRange(tier.drawDistance);
+      this.dayNight.fogScale = tier.fogDensity;
+      this.dayNight.apply();
+    }
+    this.traffic?.setBudget?.(tier.traffic);
+    this.pedestrians?.setBudget?.(tier.pedestrians);
+    this.weather?.setScale?.(tier.particles);
+    this.ui?.setTierLabel?.(tier.label, this.perf?.min !== this.perf?.max);
+    if (this.renderer.domElement) this._onResize?.();
+  }
+
+  /** Spread shadow-map updates over several frames on the slower tiers. */
+  _tickShadows() {
+    const every = this.tier?.shadowEvery || 1;
+    if (every <= 1 || !this.renderer.shadowMap.enabled) return;
+    this._shadowTick = (this._shadowTick + 1) % every;
+    this.renderer.shadowMap.needsUpdate = this._shadowTick === 0;
+  }
 
   _pickQuality() {
     const pref = this.save.settings.quality;
@@ -134,6 +205,7 @@ class Game {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h, false);
     };
+    this._onResize = resize;
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 250));
     document.addEventListener('visibilitychange', () => {
@@ -186,8 +258,21 @@ class Game {
     this.network = buildNetwork(this.terrain, this.locations);
     registerTerrainShaping(this.terrain, this.locations, this.network);
 
-    const hm = this.terrain.buildHeightmap();
-    await this._drain(hm, (t) => this.ui.setLoading(0.02 + t * 0.22, 'Shaping the coastline...'));
+    // The heightfield is a pure function of the island's shape, and baking it
+    // is by far the slowest part of a cold load. Read it back when we can.
+    const hmKey = this.terrain.cacheKey();
+    const cached = this.save.settings.cacheWorld === false ? null : await CACHE.get(hmKey);
+    if (cached && this.terrain.adoptHeights(cached)) {
+      this.ui.setLoading(0.24, 'Remembering the island...');
+      await this._frame();
+    } else {
+      const hm = this.terrain.buildHeightmap();
+      await this._drain(hm, (t) => this.ui.setLoading(0.02 + t * 0.22, 'Shaping the coastline...'));
+      // Store a copy: the live array keeps being read for the rest of the session.
+      if (this.save.settings.cacheWorld !== false) {
+        CACHE.put(hmKey, this.terrain.heights.slice()).catch(() => { /* quota; not fatal */ });
+      }
+    }
 
     this.physics = new Physics(this.terrain);
     this.terrain.build(this.scene, q);
@@ -204,11 +289,23 @@ class Game {
     this.world = new World(this.scene, this.terrain, this.physics, q, this.water, this.veg,
       this.locations, this.network);
     const gen = this.world.build();
+    const vegKey = `veg:${hmKey}:${q.name}`;
+    const vegSnap = this.save.settings.cacheWorld === false ? null : await CACHE.get(vegKey);
+    if (vegSnap) this.world.useVegetationCache(vegSnap);
+
     await this._drain(gen, (t, label) => this.ui.setLoading(0.3 + t * 0.55, label));
+
+    if (this.save.settings.cacheWorld !== false && !vegSnap && !this.world._vegReplayFailed) {
+      const snap = this.world.veg.snapshot();
+      if (snap) CACHE.put(vegKey, snap).catch(() => { /* quota; not fatal */ });
+    }
 
     // ---- actors ----
     this.ui.setLoading(0.88, 'Waking everyone up...');
     await this._frame();
+    // The governor needs the renderer, the sun and the crowd systems to exist
+    // before it can scale anything, so it starts here rather than at boot.
+    this._setupGovernor();
 
     this.player = new Player(this.scene, this.physics, this.terrain, this.save.state.look);
     this.companion = new Companion(this.scene, this.physics, this.terrain, this.save.state.companionLook);
@@ -277,7 +374,7 @@ class Game {
 
     this.ui.setLoading(1, 'Ready');
     await this._frame();
-    await new Promise(r => setTimeout(r, 220));
+    await new Promise(r => setTimeout(r, 90));
     this.ui.hideLoading();
     this.ui.showHUD(this.touch);
     this.ui.updateHUD();
@@ -308,7 +405,9 @@ class Game {
       const label = typeof step === 'number' ? null : step.label;
       onProgress(t, label);
       const now = performance.now();
-      if (now - last > 24) { await this._frame(); last = performance.now(); }
+      // Yield often enough that the loading screen keeps animating, but not so
+      // often that waiting for the next frame costs more than the work itself.
+      if (now - last > 40) { await this._frame(); last = performance.now(); }
     }
     await this._frame();
   }
@@ -341,6 +440,7 @@ class Game {
     this.dtReal = Math.min(dt, 0.5);
     if (dt > 0.1) dt = 0.1;
     this.time += dt;
+    this.perf?.frame(this.dtReal);
 
     this.fpsAcc += dt; this.fpsCount++;
     if (this.fpsAcc > 0.5) {
@@ -364,6 +464,7 @@ class Game {
     }
 
     this._updateWorldSystems(dt);
+    this._tickShadows();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1202,13 +1303,32 @@ class Game {
     this.companion?.setLook(this.save.state.companionLook);
   }
 
+  /** Drop everything cached for this device, from Settings. */
+  async clearWorldCache() {
+    return CACHE.clear();
+  }
+
   applySetting(key, value) {
     const s = this.save.settings;
     if (key === 'quality') {
       s.quality = value;
       const q = this._pickQuality();
       this._applyQuality(q);
-      this.ui.toast('Graphics', `Set to ${q.name}. Some changes apply on the next visit.`);
+      if (this.perf) {
+        const a = !value || value === 'auto';
+        this.perf.setRange(a ? 'potato' : value, a ? 'high' : value);
+        this.perf.enabled = true;
+      }
+      const auto = !value || value === 'auto';
+      this.ui.toast('Graphics', auto
+        ? 'Auto — the game will tune itself to keep the frame rate steady.'
+        : `Set to ${q.name}. Terrain and tree detail apply on the next visit.`);
+    } else if (key === 'cacheWorld') {
+      s.cacheWorld = value === 'on';
+      if (!s.cacheWorld) CACHE.clear();
+      this.ui.toast('Fast loading', s.cacheWorld
+        ? 'The island will be remembered after this visit.'
+        : 'Turned off. The island is rebuilt from scratch every time.');
     } else if (key === 'shadows') {
       s.shadows = value === 'on';
       this.renderer.shadowMap.enabled = s.shadows && this.quality.shadows;

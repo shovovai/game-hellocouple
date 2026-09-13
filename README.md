@@ -174,6 +174,57 @@ Physics resolution is deliberately **independent of graphics quality**: the
 collision heightfield is always baked at 300², so the world feels identical on a
 phone and on a desktop.
 
+### It tunes itself
+
+Guessing a quality level from `navigator.hardwareConcurrency` and
+`navigator.deviceMemory` is unreliable — Safari does not report memory at all,
+and a laptop with eight cores can still be driving integrated graphics. So the
+guess only picks a starting point and `perf.js` corrects it from the one number
+that matters: measured frame time.
+
+The governor watches a rolling window of frame times and moves between four
+**runtime tiers** (Minimum, Low, Medium, High) that scale resolution, shadows,
+view distance, crowd size and rain density. A sustained median above 26 ms
+steps down; above 55 ms drops two tiers at once; a long clean run below 11.5 ms
+steps back up. It only decides from at least twenty samples, so a device running
+at five frames a second is corrected in about two seconds rather than twelve.
+Single long frames over 500 ms are ignored — those are hitches, not a trend.
+
+Tiers only touch what can change mid-session. Anything that would mean
+rebuilding the world — terrain resolution, tree density — stays fixed at the
+preset chosen when the island was built. Picking a quality by hand in Settings
+pins the tier and the governor stops moving it; **Auto** hands it back.
+
+Shadow maps are redrawn every second, third or fourth frame on the lower tiers
+(`renderer.shadowMap.autoUpdate = false` plus a counter) because the sun barely
+moves between frames, and the environment probe refreshes every four seconds
+rather than every 1.5.
+
+### It remembers the island
+
+The island is a pure function of its seed, and on a cold load most of the wait is
+spent proving that: baking a 561 × 561 heightfield, and testing tens of thousands
+of candidate tree positions against slope, path distance and physics — most of
+which are rejected.
+
+`cache.js` stores both results in IndexedDB, keyed by a hash of everything that
+shapes the island, so an edit to a location or a road invalidates them
+automatically. Vegetation is cached as a **recording of the placements that
+survived** rather than as geometry: the replay skips the search entirely and
+rebuilds the same trees from the same decisions.
+
+Measured on the same machine, world build time:
+
+| | Cold | Warm |
+| --- | --- | --- |
+| Heightfield | 2 900 ms | 500 ms |
+| Whole build | 4 860 ms | 2 210 ms |
+
+Everything degrades silently — private browsing, a full disk, no IndexedDB, or a
+cache written by an older build all just mean a normal cold generation. Turn it
+off or wipe it from **Settings → Graphics → Fast loading**, and bump
+`CACHE_VERSION` in `cache.js` when a change makes old entries wrong.
+
 ## 6. Project structure
 
 ```
@@ -219,6 +270,8 @@ game-hellocouple/
     ├── save.js             persistence behind a storage adapter
     ├── ui.js               every DOM surface
     ├── voice.js            push-to-talk companion voice + WebRTC voice chat
+    ├── perf.js             frame-rate governor + runtime quality tiers
+    ├── cache.js            IndexedDB cache for the generated island
     └── net.js              the multiplayer seam
 ```
 

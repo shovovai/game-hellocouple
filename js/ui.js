@@ -334,6 +334,13 @@ export class UI {
     });
   }
 
+  /** Show which runtime tier the governor settled on, in Settings. */
+  setTierLabel(label, auto) {
+    this._tierLabel = label;
+    this._tierAuto = auto;
+    if (this.overlayOpen && this.overlayTab === 'settings') this.renderOverlay();
+  }
+
   /** The strip above the HUD that shows what was heard and what was said back. */
   setVoiceState(state, heard = '', reply = '') {
     const el = this.el.voiceStrip;
@@ -590,7 +597,8 @@ export class UI {
       <div class="section">
         <div class="section-title">Graphics</div>
         <div class="opt-row">
-          <label>Quality<span class="hint">Auto picks a preset from your device</span></label>
+          <label>Quality<span class="hint">Auto measures your frame rate and tunes itself${
+            this._tierLabel ? ` — currently <b>${this._tierLabel}</b>` : ''}</span></label>
           <div class="opt-ctl">${seg('quality', [
             { v: 'auto', l: 'Auto' }, { v: 'low', l: 'Low' }, { v: 'medium', l: 'Medium' }, { v: 'high', l: 'High' },
           ], st.quality)}</div>
@@ -606,6 +614,15 @@ export class UI {
         <div class="opt-row">
           <label>Fullscreen</label>
           <div class="opt-ctl"><button class="btn btn-small" id="set-fullscreen">Toggle fullscreen</button></div>
+        </div>
+        <div class="opt-row">
+          <label>Fast loading<span class="hint">Remember the generated island so it loads in seconds next time</span></label>
+          <div class="opt-ctl">${seg('cacheWorld', [{ v: 'on', l: 'On' }, { v: 'off', l: 'Off' }],
+            st.cacheWorld === false ? 'off' : 'on')}</div>
+        </div>
+        <div class="opt-row">
+          <label>Stored island data</label>
+          <div class="opt-ctl"><button class="btn btn-small" id="set-clearcache">Clear and rebuild</button></div>
         </div>
       </div>
       <div class="section">
@@ -662,6 +679,15 @@ export class UI {
       this.game.dayNight.setTime(parseFloat(e.target.value));
     });
     $('set-fullscreen')?.addEventListener('click', () => this.game.toggleFullscreen());
+    $('set-clearcache')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Clearing…';
+      const ok = await this.game.clearWorldCache();
+      e.target.textContent = ok ? 'Cleared' : 'Nothing stored';
+      this.toast('Island data', ok
+        ? 'Cleared. The next visit rebuilds the island from scratch.'
+        : 'Nothing was stored for this device.');
+    });
     $('set-save')?.addEventListener('click', () => this.game.saveGame(true));
     $('set-reset')?.addEventListener('click', () => this.confirmReset());
   }

@@ -211,6 +211,33 @@ export class Terrain {
 
   /* --------------------------------------------------------- heightmap */
 
+  /**
+   * A key that changes whenever anything that shapes the island changes, so a
+   * cached heightfield from an older build is never reused.
+   */
+  cacheKey() {
+    return `hm:${this.res}:${this.size}:${this._shapeHash()}`;
+  }
+
+  _shapeHash() {
+    // Fold the zone/rect/path lists into one number. Cheap, and any edit to a
+    // location or a road moves it.
+    let h = 2166136261;
+    const mix = (v) => { h ^= Math.round(v * 100) | 0; h = Math.imul(h, 16777619); };
+    for (const z of this.zones || []) { mix(z.x); mix(z.z); mix(z.r ?? z.radius ?? 0); mix(z.y ?? z.target ?? 0); }
+    for (const r of this.rects || []) { mix(r.x); mix(r.z); mix(r.halfW); mix(r.halfD); mix(r.target ?? 0); }
+    for (const p of this.paths || []) { mix(p.width || 0); mix(p.pts?.length || 0); mix(p.elev?.[0] ?? 0); }
+    for (const o of this.overrides || []) { mix(o.x ?? 0); mix(o.z ?? 0); mix(o.r ?? o.radius ?? 0); }
+    return (h >>> 0).toString(36);
+  }
+
+  /** Adopt a heightfield read back from the cache. */
+  adoptHeights(buf) {
+    if (!buf || buf.length !== this.heights.length) return false;
+    this.heights.set(buf);
+    return true;
+  }
+
   /** Bake the heightfield. Yields progress between 0..1 so the loader can tick. */
   *buildHeightmap() {
     const n = this.res + 1;

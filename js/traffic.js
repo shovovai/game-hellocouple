@@ -34,6 +34,8 @@ export class TrafficSystem {
     scene.add(this.group);
 
     const m = materials();
+    this.activeCars = this.cars.length;
+    this.range = ACTIVE_RANGE;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._e = new THREE.Euler();
@@ -159,22 +161,26 @@ export class TrafficSystem {
     const p = {};
     let wheelIdx = 0;
 
-    for (const car of this.cars) {
+    for (let ci = 0; ci < this.cars.length; ci++) {
+      const car = this.cars[ci];
       const far = Math.hypot(car.x - focus.x, car.z - focus.z);
+      // over budget: the car keeps its place on the road graph but stops being
+      // simulated or drawn, so raising the budget brings it straight back
+      const budgeted = ci < this.activeCars;
 
       // recycle cars that have wandered out of range
-      if (far > ACTIVE_RANGE * 1.6) {
+      if (budgeted && far > this.range * 1.6) {
         const route = this._pickStart();
         if (route) {
           const n = this.graph.nodes[route.from];
-          if (Math.hypot(n.x - focus.x, n.z - focus.z) < ACTIVE_RANGE) {
+          if (Math.hypot(n.x - focus.x, n.z - focus.z) < this.range) {
             car.from = route.from; car.to = route.to; car.t = 0;
             this._snap(car);
           }
         }
       }
 
-      const visible = far < ACTIVE_RANGE;
+      const visible = budgeted && far < this.range;
       car.visible = visible;
 
       if (visible) {
@@ -247,6 +253,13 @@ export class TrafficSystem {
     }
     this.tyres.instanceMatrix.needsUpdate = true;
     this.rims.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Scale how many cars drive and how far away they stay loaded. */
+  setBudget(frac) {
+    const f = Math.min(1, Math.max(0, frac));
+    this.activeCars = Math.max(0, Math.round(this.cars.length * f));
+    this.range = 130 + 130 * f;
   }
 
   setNight(night) {
@@ -370,12 +383,24 @@ export class PedestrianSystem {
     }
     for (const im of Object.values(this.parts)) if (im.instanceColor) im.instanceColor.needsUpdate = true;
 
+    this.activePeds = this.peds.length;
+    this.range = 190;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._e = new THREE.Euler();
     this._p = new THREE.Vector3();
     this._s = new THREE.Vector3(1, 1, 1);
     this._zero = new THREE.Vector3(0, 0, 0);
+  }
+
+  /**
+   * Scale the crowd at runtime. Parked cars and hidden pedestrians keep their
+   * state, so raising the budget again brings them straight back rather than
+   * popping new ones into existence.
+   */
+  setBudget(frac) {
+    this.activePeds = Math.max(0, Math.round(this.peds.length * Math.min(1, Math.max(0, frac))));
+    this.range = 110 + 110 * Math.min(1, Math.max(0, frac));
   }
 
   /** Walk the rectangle perimeter: returns position + facing for arc length s. */
@@ -396,7 +421,7 @@ export class PedestrianSystem {
     for (let i = 0; i < this.peds.length; i++) {
       const p = this.peds[i];
       const far = Math.hypot(p.cx - focus.x, p.cz - focus.z);
-      const visible = far < 190;
+      const visible = i < this.activePeds && far < this.range;
       if (visible) {
         p.s += p.speed * dt;
         const w = this._walk(p, p.s);

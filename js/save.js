@@ -81,6 +81,7 @@ export function defaultSettings() {
     sensitivity: 1.0,
     invertY: false,
     showFps: false,
+    cacheWorld: true,
     pointerLock: true,
   };
 }
