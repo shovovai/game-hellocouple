@@ -594,3 +594,154 @@ export function roadLineTexture(key, dashed = true) {
   }, { repeat: 1 });
 }
 
+
+/* --------------------------------------------------- character surfaces */
+
+/**
+ * Character skin/cloth detail. These are shared by every character in the
+ * world: the map is near-white greyscale so the material's own colour still
+ * decides the hue, and the matching normal map is what actually makes cloth
+ * read as cloth under moving light.
+ */
+
+/** Greyscale multiplier map (linear, so a value of 255 leaves colour alone). */
+function detailTexture(key, size, fn, repeat = 1) {
+  return pixelTexture(key, size, (x, y, d, i, s) => {
+    const v = clamp(fn(x, y, s) * 255, 0, 255);
+    d[i] = d[i + 1] = d[i + 2] = v;
+    d[i + 3] = 255;
+  }, { srgb: false, repeat });
+}
+
+/** Tangent-space normal map derived from a tiling height function. */
+function normalTexture(key, size, h, strength = 1.5, repeat = 1) {
+  return pixelTexture(key, size, (x, y, d, i, s) => {
+    const w = (a, b) => h((a + s) % s, (b + s) % s, s);
+    const dx = (w(x + 1, y) - w(x - 1, y)) * strength;
+    const dy = (w(x, y + 1) - w(x, y - 1)) * strength;
+    const l = Math.hypot(dx, dy, 1);
+    d[i] = (-dx / l * 0.5 + 0.5) * 255;
+    d[i + 1] = (-dy / l * 0.5 + 0.5) * 255;
+    d[i + 2] = (1 / l * 0.5 + 0.5) * 255;
+    d[i + 3] = 255;
+  }, { srgb: false, repeat });
+}
+
+// Height fields, all in 0..1 and tiling over the texture size.
+const SURFACE_HEIGHT = {
+  // fine cotton knit: a square weave with slubs
+  knit: (x, y) => 0.5 + Math.sin(x * Math.PI * 0.5) * Math.sin(y * Math.PI * 0.5) * 0.34
+    + noise2(x * 0.35, y * 0.35, 11) * 0.16,
+  // denim: a diagonal twill rib plus a coarse thread
+  denim: (x, y) => 0.5 + Math.sin((x + y) * 0.78) * 0.3
+    + Math.sin(x * 1.9) * 0.1 + noise2(x * 0.5, y * 0.5, 17) * 0.14,
+  // leather / canvas shoe: pebbled grain
+  leather: (x, y) => 0.5 + fbm(x * 0.22, y * 0.22, 3, 23) * 0.5,
+  // skin: shallow pores only — this must stay subtle or it looks like stone
+  skin: (x, y) => 0.5 + noise2(x * 1.4, y * 1.4, 7) * 0.28 + fbm(x * 0.2, y * 0.2, 2, 5) * 0.2,
+  // hair: vertical strands with a little wander
+  hair: (x, y) => 0.5 + Math.sin(x * 1.5 + noise2(x * 0.1, y * 0.12, 3) * 2.4) * 0.38
+    + noise2(x * 0.8, y * 0.3, 9) * 0.12,
+};
+
+const SURFACE_SHADE = {
+  knit: 0.028, denim: 0.038, leather: 0.05, skin: 0.022, hair: 0.11,
+};
+
+/** Greyscale detail map for a character surface kind. */
+export function surfaceDetail(kind) {
+  const h = SURFACE_HEIGHT[kind] || SURFACE_HEIGHT.knit;
+  const amp = SURFACE_SHADE[kind] ?? 0.06;
+  return detailTexture('surfd:' + kind, 64, (x, y) => 1 - amp + (h(x, y) - 0.5) * amp * 2);
+}
+
+/** Matching normal map for a character surface kind. */
+export function surfaceNormal(kind) {
+  const h = SURFACE_HEIGHT[kind] || SURFACE_HEIGHT.knit;
+  const str = kind === 'skin' ? 0.35 : kind === 'hair' ? 1.6 : 0.9;
+  return normalTexture('surfn:' + kind, 64, h, str);
+}
+
+/** Eye: white sclera with a coloured iris and pupil, drawn once per hue. */
+export function irisTexture(colorHex = '#4a3324') {
+  const key = 'iris:' + colorHex;
+  if (cache.has(key)) return cache.get(key);
+  const size = 64;
+  const c = canvasOf(size);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e9e2da';
+  ctx.fillRect(0, 0, size, size);
+  const cx = size / 2, cy = size / 2;
+  // The iris covers most of the sphere: a small iris on a big white ball is
+  // what makes a face read as a cartoon.
+  const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, size * 0.44);
+  g.addColorStop(0, '#0a0807');
+  g.addColorStop(0.38, '#0a0807');
+  g.addColorStop(0.43, colorHex);
+  g.addColorStop(0.88, colorHex);
+  g.addColorStop(1, '#1d1510');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.44, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.arc(cx - size * 0.13, cy - size * 0.15, size * 0.06, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  cache.set(key, tex);
+  return tex;
+}
+
+/** Clear-coat orange peel — very fine, just enough to break up flat paint. */
+export function carPaintNormal() {
+  return normalTexture('carpaint', 64, (x, y) =>
+    0.5 + fbm(x * 0.22, y * 0.22, 3, 41) * 0.5, 0.35, 6);
+}
+
+/* ------------------------------------------------- architectural normals */
+
+/**
+ * Surface relief for architecture. The colour maps already carry the pattern;
+ * these give the same pattern real depth under the moving sun, which is most
+ * of what separates "a painted box" from "a wall".
+ */
+const ARCH_HEIGHT = {
+  plaster: (x, y) => 0.5 + fbm(x * 0.14, y * 0.14, 3, 13) * 0.45 + noise2(x * 1.2, y * 1.2, 3) * 0.12,
+  // brick: courses 8 px tall, 16 px long, offset every other row, deep mortar
+  brick: (x, y, s) => {
+    const row = Math.floor(y / 8);
+    const bx = (x + (row % 2 ? 8 : 0)) % 16;
+    const by = y % 8;
+    const mortar = bx < 1.3 || by < 1.3;
+    return mortar ? 0.14 : 0.78 + noise2(x * 0.9, y * 0.9, 7) * 0.2;
+  },
+  // roof: overlapping tile courses
+  roof: (x, y) => {
+    const by = y % 10;
+    const bx = (x + (Math.floor(y / 10) % 2 ? 6 : 0)) % 12;
+    return (by < 1.6 ? 0.1 : 0.55 + (by / 10) * 0.45) * (bx < 1 ? 0.6 : 1);
+  },
+  stone: (x, y) => 0.5 + fbm(x * 0.11, y * 0.11, 4, 29) * 0.6,
+  wood: (x, y) => 0.5 + Math.sin(y * 0.55 + noise2(x * 0.1, y * 0.08, 5) * 3) * 0.22
+    + noise2(x * 1.1, y * 0.25, 9) * 0.2,
+  concrete: (x, y) => 0.5 + fbm(x * 0.3, y * 0.3, 3, 19) * 0.3,
+  paving: (x, y) => ((x % 16 < 1.2) || (y % 16 < 1.2)) ? 0.15 : 0.8 + noise2(x * 0.7, y * 0.7, 23) * 0.18,
+  asphalt: (x, y) => 0.5 + fbm(x * 0.6, y * 0.6, 3, 31) * 0.4,
+};
+
+const ARCH_STRENGTH = {
+  plaster: 0.5, brick: 2.4, roof: 2.0, stone: 1.6, wood: 0.9,
+  concrete: 0.45, paving: 1.6, asphalt: 0.7,
+};
+
+/** Normal map for an architectural surface kind. */
+export function archNormal(kind, repeat = 1) {
+  const h = ARCH_HEIGHT[kind];
+  if (!h) return null;
+  const tex = normalTexture('archn:' + kind, 128, h, ARCH_STRENGTH[kind] ?? 1);
+  if (repeat !== 1) { tex.repeat.set(repeat, repeat); }
+  return tex;
+}

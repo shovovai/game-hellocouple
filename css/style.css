@@ -413,3 +413,46 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
+
+/* ---------------------------------------------------------------- voice */
+#voice-strip {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: min(560px, 92vw);
+  padding: 10px 16px;
+  border-radius: 16px;
+  background: rgba(18, 18, 24, 0.72);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f4f1ec;
+  font-size: 14px;
+  z-index: 40;
+  pointer-events: none;
+}
+#voice-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #6b7280;
+}
+#voice-strip.listening #voice-dot { background: #ff4d6d; animation: voice-pulse 1s ease-in-out infinite; }
+#voice-strip.speaking  #voice-dot { background: #4fd1c5; }
+@keyframes voice-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.45); opacity: 0.55; }
+}
+#voice-text { min-width: 0; }
+#voice-heard { opacity: 0.72; font-style: italic; overflow-wrap: anywhere; }
+#voice-reply { font-weight: 600; overflow-wrap: anywhere; }
+#voice-heard:empty, #voice-reply:empty { display: none; }
+.voice-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}

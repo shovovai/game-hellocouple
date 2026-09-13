@@ -190,6 +190,12 @@ export const QUESTS = [
     trigger:'activity:drive', target:1, reward:{coins:60, hearts:20, xp:40} },
   { id:'campfireNight', name:'Campfire Night', desc:'Sit by the campfire at the campsite.',
     trigger:'activity:campfire', target:1, reward:{hearts:30, xp:35} },
+  { id:'handInHand', name:'Hand in Hand', desc:'Take your partner by the hand and walk together (press H).',
+    trigger:'activity:holdHands', target:1, reward:{hearts:40, xp:30} },
+  { id:'twoSeater', name:'Two Seater', desc:'Go for a drive together with your partner in the car.',
+    trigger:'activity:coupleDrive', target:1, reward:{coins:80, hearts:45, xp:55} },
+  { id:'saySomething', name:'Say Something', desc:'Speak to your partner out loud using the microphone (press V).',
+    trigger:'activity:voice', target:1, reward:{hearts:35, xp:40} },
   { id:'starGatherer', name:'Star Gatherer', desc:'Find 3 hidden stars around the island.',
     trigger:'collect:star', target:3, reward:{coins:250, hearts:100, xp:150} },
 ];
@@ -240,7 +246,26 @@ export const CUSTOMIZE = {
   shirt: ['#ff7a9c', '#4f9fd8', '#f0e6d2', '#6fbf73', '#ff8b6b', '#2b2f38'],
   pants: ['#3c5a80', '#bda37a', '#2b2f38', '#6b6f7a'],
   shoes: ['#f2f2f2', '#8a5a34', '#23262e', '#d8534f'],
-  styles:['short', 'long', 'bun'],
+  eyes:  ['#4a3324', '#2f2620', '#3f6b4f', '#3d6c93', '#7a5230'],
+  styles:['short', 'long', 'bun', 'ponytail'],
+  outfits:['tee', 'shirt', 'jacket', 'hoodie', 'coat', 'dress'],
+  bottoms:['trousers', 'shorts', 'skirt'],
+};
+
+/* ------------------------------------------------------------------ voice */
+
+/**
+ * Voice settings.
+ *
+ * `serverUrl` is the only thing this game ever needs a server for. Point it at
+ * the signalling server in `server/` (`wss://...` in production, `ws://` for
+ * local testing) and the in-game Voice tab can join a room. Leave it empty and
+ * live voice chat is simply reported as unavailable — push-to-talk with your
+ * companion still works, because that runs entirely in the browser.
+ */
+export const VOICE = {
+  serverUrl: '',            // e.g. 'wss://voice.example.com'
+  pushToTalkKey: 'V',
 };
 
 /* --------------------------------------------------------------- leveling */
@@ -284,6 +309,7 @@ export const CONTROLS = [
   ['P', 'Photo mode'],
   ['C', 'Emotes'],
   ['E at a car', 'Drive'],
+  ['H', 'Hold hands'],
   ['Esc', 'Menu'],
 ];
 

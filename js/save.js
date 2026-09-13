@@ -51,16 +51,19 @@ export function defaultState() {
     equipped: { hat: null, emotes: [] },
     look: {
       skin: CUSTOMIZE.skin[1], hair: CUSTOMIZE.hair[0], hairStyle: 'short',
-      shirt: CUSTOMIZE.shirt[0], pants: CUSTOMIZE.pants[0], shoes: CUSTOMIZE.shoes[0], hat: null,
+      shirt: CUSTOMIZE.shirt[0], pants: CUSTOMIZE.pants[0], shoes: CUSTOMIZE.shoes[0],
+      eyes: CUSTOMIZE.eyes[0], outfit: 'shirt', bottom: 'trousers', hat: null,
     },
     companionLook: {
       skin: CUSTOMIZE.skin[3], hair: CUSTOMIZE.hair[3], hairStyle: 'long',
-      shirt: CUSTOMIZE.shirt[1], pants: CUSTOMIZE.pants[1], shoes: CUSTOMIZE.shoes[1], hat: null,
+      shirt: CUSTOMIZE.shirt[1], pants: CUSTOMIZE.pants[3], shoes: CUSTOMIZE.shoes[1],
+      eyes: CUSTOMIZE.eyes[3], outfit: 'dress', bottom: 'skirt', hat: null,
     },
     flags: {},
     stats: {
       totalCollected: 0, fishCaught: 0, drinksOrdered: 0, dates: 0,
       timeAtBeach: 0, maxHeight: 0, playTime: 0, photos: 0, distance: 0,
+      handHolds: 0, voiceLines: 0,
     },
     world: { time: 8.5, weather: 'sunny' },
     position: null,

@@ -26,6 +26,7 @@ export class UI {
       prompt: $('interact-prompt'), promptLabel: $('interact-label'),
       toasts: $('toast-stack'), banner: $('discovery-banner'), bannerTitle: $('db-title'), bannerSub: $('db-sub'),
       overlay: $('overlay'), ovBody: $('ov-body'), ovTabs: $('ov-tabs'),
+      voiceStrip: $('voice-strip'), voiceHeard: $('voice-heard'), voiceReply: $('voice-reply'),
       modal: $('modal'), modalCard: $('modal-card'),
       dialogue: $('dialogue'), dlgName: $('dlg-name'), dlgText: $('dlg-text'), dlgChoices: $('dlg-choices'),
       touch: $('touch-controls'), photo: $('photo-ui'), wheel: $('emote-wheel'),
@@ -261,9 +262,87 @@ export class UI {
       shop: () => this.renderShop(body),
       customize: () => this.renderCustomize(body),
       achievements: () => this.renderAchievements(body),
+      voice: () => this.renderVoice(body),
       settings: () => this.renderSettings(body),
     }[this.overlayTab];
     r ? r() : (body.innerHTML = '');
+  }
+
+  /** Voice tab: push-to-talk settings and the room code for voice chat. */
+  renderVoice(body) {
+    const g = this.game;
+    const lv = g.voice;
+    const vc = g.voiceChat;
+    const s = g.save.state.settings || (g.save.state.settings = {});
+    const voices = (typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : []) || [];
+    const micNote = lv?.available
+      ? 'Hold <b>V</b> (or the 🎙 button) and speak. Release to let them answer.'
+      : 'This browser has no speech recognition. Chrome, Edge and Safari have it; Firefox does not.';
+    const chatNote = vc?.available
+      ? 'Share the code with your partner. Same code, same room — you will hear each other in 3D as you move.'
+      : 'Live voice chat needs the signalling server from <code>server/</code> running, and its address in <code>VOICE.serverUrl</code>.';
+
+    body.innerHTML = `
+      <div class="section">
+        <div class="section-title">Talk to ${g.companion?.name || 'your partner'}</div>
+        <p class="hint">${micNote}</p>
+        <div class="opt-row">
+          <label>Voice replies<span class="hint">Spoken out loud</span></label>
+          <div class="opt-ctl"><button class="btn btn-small ${lv?.enabled ? 'btn-primary' : ''}" id="v-enable">${lv?.enabled ? 'On' : 'Off'}</button></div>
+        </div>
+        ${voices.length ? `<div class="opt-row">
+          <label>Their voice</label>
+          <div class="opt-ctl"><select id="v-voice">${voices.map(v =>
+            `<option value="${v.name}" ${lv?.voice?.name === v.name ? 'selected' : ''}>${v.name}</option>`).join('')}</select></div>
+        </div>` : ''}
+        <div class="opt-row">
+          <label>Try saying<span class="hint">"where are we", "what time is it", "hold my hand", "let's take a photo", "I love you"</span></label>
+          <div class="opt-ctl"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Voice chat with a real person</div>
+        <p class="hint">${chatNote}</p>
+        <div class="opt-row">
+          <label>Room code</label>
+          <div class="opt-ctl">
+            <input id="v-room" class="voice-code" maxlength="12" value="${(s.voiceRoom || '').replace(/[^A-Za-z0-9]/g, '')}" placeholder="LOVE42">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn ${vc?.connected ? '' : 'btn-primary'}" id="v-connect" ${vc?.available ? '' : 'disabled'}>
+            ${vc?.connected ? 'Leave room' : 'Join room'}</button>
+          <button class="btn btn-small" id="v-mute" ${vc?.connected ? '' : 'disabled'}>${vc?.muted ? 'Unmute mic' : 'Mute mic'}</button>
+        </div>
+        <p class="hint" id="v-status">${g.voiceStatus || (vc?.connected ? `Connected — ${vc.peers.size} other here` : 'Not connected')}</p>
+      </div>`;
+
+    const $i = (id) => body.querySelector('#' + id);
+    $i('v-enable')?.addEventListener('click', () => {
+      if (lv) { lv.enabled = !lv.enabled; this.renderOverlay(); }
+    });
+    $i('v-voice')?.addEventListener('change', (e) => lv?.setVoiceName(e.target.value));
+    $i('v-room')?.addEventListener('input', (e) => {
+      s.voiceRoom = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      e.target.value = s.voiceRoom;
+      g.save.touch();
+    });
+    $i('v-connect')?.addEventListener('click', () => g.toggleVoiceChat());
+    $i('v-mute')?.addEventListener('click', () => {
+      vc?.setMuted(!vc.muted);
+      this.renderOverlay();
+    });
+  }
+
+  /** The strip above the HUD that shows what was heard and what was said back. */
+  setVoiceState(state, heard = '', reply = '') {
+    const el = this.el.voiceStrip;
+    if (!el) return;
+    el.classList.toggle('hidden', state === 'off');
+    el.classList.toggle('listening', state === 'listening');
+    el.classList.toggle('speaking', state === 'speaking');
+    if (heard !== null) this.el.voiceHeard.textContent = heard;
+    if (reply !== null) this.el.voiceReply.textContent = reply;
   }
 
   renderMap(body) {
@@ -452,6 +531,9 @@ export class UI {
         ${row('Skin tone', 'skin', CUSTOMIZE.skin)}
         ${row('Hair colour', 'hair', CUSTOMIZE.hair)}
         ${row('Hair style', 'hairStyle', CUSTOMIZE.styles, true)}
+        ${row('Outfit', 'outfit', CUSTOMIZE.outfits, true)}
+        ${row('Bottoms', 'bottom', CUSTOMIZE.bottoms, true)}
+        ${row('Eye colour', 'eyes', CUSTOMIZE.eyes)}
         ${row('Shirt', 'shirt', CUSTOMIZE.shirt)}
         ${row('Trousers', 'pants', CUSTOMIZE.pants)}
         ${row('Shoes', 'shoes', CUSTOMIZE.shoes)}

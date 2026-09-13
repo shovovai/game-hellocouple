@@ -36,6 +36,8 @@ export class Companion {
     this._probe = new THREE.Vector3();
     this._idleTimer = 0;
     this._emoteTimer = 8;
+    this.holding = false;        // walking hand in hand with the player
+    this.holdSide = -1;          // companion walks on the player's left
   }
 
   setLook(look) { this.character.setLook(look); }
@@ -74,9 +76,16 @@ export class Companion {
     return true;
   }
 
-  update(dt, target, targetSpeed) {
+  /** Where the companion should stand to walk hand in hand: beside, not behind. */
+  holdSpot(target, yaw) {
+    const lx = -Math.cos(yaw), lz = Math.sin(yaw);
+    return { x: target.x + lx * this.holdSide * -0.78, z: target.z + lz * this.holdSide * -0.78 };
+  }
+
+  update(dt, target, targetSpeed, opts = {}) {
     if (!this.enabled) return;
     const ch = this.character;
+    const holding = this.holding && !this.sitting;
 
     if (this.sitting) {
       this.root.position.copy(this.pos);
@@ -85,15 +94,26 @@ export class Companion {
       return;
     }
 
-    const dx = target.x - this.pos.x;
-    const dz = target.z - this.pos.z;
+    // When holding hands the companion tracks a point beside the player rather
+    // than trailing behind, and steers straight at it — no obstacle fan, or the
+    // pair would visibly stretch apart.
+    const goal = holding ? this.holdSpot(target, opts.yaw ?? this.yaw) : target;
+    const dx = goal.x - this.pos.x;
+    const dz = goal.z - this.pos.z;
     const dist = Math.hypot(dx, dz);
 
     // stranded? pop back behind the player
     if (dist > 42) { this.teleportNear(target, Math.atan2(dx, dz)); return; }
 
     let moveX = 0, moveZ = 0, want = 0;
-    if (dist > FOLLOW_MIN) {
+    if (holding) {
+      if (dist > 0.04) {
+        const nx = dx / dist, nz = dz / dist;
+        want = Math.min(RUN * 1.1, Math.max(targetSpeed, 0) + dist * 3.2);
+        moveX = nx * want;
+        moveZ = nz * want;
+      }
+    } else if (dist > FOLLOW_MIN) {
       const nx = dx / dist, nz = dz / dist;
       // steer around obstacles: try straight, then fan out
       let bx = nx, bz = nz, found = false;
@@ -125,7 +145,7 @@ export class Companion {
 
     // keep out of the player's personal space
     const nd = Math.hypot(target.x - this.pos.x, target.z - this.pos.z);
-    if (nd < 1.15 && nd > 0.001) {
+    if (!holding && nd < 1.15 && nd > 0.001) {
       const push = (1.15 - nd);
       this.pos.x -= ((target.x - this.pos.x) / nd) * push;
       this.pos.z -= ((target.z - this.pos.z) / nd) * push;
@@ -137,7 +157,11 @@ export class Companion {
 
     this.speed = Math.hypot(this.vel.x, this.vel.z);
 
-    if (this.speed > 0.3) {
+    if (holding) {
+      // face the same way as the player, not at the hold point
+      this.yaw = angleLerp(this.yaw, opts.yaw ?? this.yaw, 1 - Math.exp(-dt * 9));
+      this._idleTimer = 0;
+    } else if (this.speed > 0.3) {
       this.yaw = angleLerp(this.yaw, Math.atan2(this.vel.x, this.vel.z), 1 - Math.exp(-dt * 10));
       this._idleTimer = 0;
     } else {
@@ -155,7 +179,10 @@ export class Companion {
 
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
-    ch.update(dt, { speed: this.speed, grounded: true, sitting: false });
+    ch.update(dt, {
+      speed: this.speed, grounded: true, sitting: false,
+      hold: holding ? -this.holdSide : 0,
+    });
   }
 
   emote(id, dur) { this.character.playEmote(id, dur); }

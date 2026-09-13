@@ -105,6 +105,8 @@ touches elements inside `#game-root`.
 | `J` or `Q` | Quests |
 | `I` | Inventory |
 | `C` | Emote wheel |
+| `H` | Hold your partner's hand (and let go) |
+| `V` (hold) | Push to talk — speak, and they answer out loud |
 | `P` | Photo mode |
 | `F` | Fullscreen |
 | `Esc` | Pause menu, or close whatever is open |
@@ -123,7 +125,8 @@ Touch controls appear automatically on touch devices:
 - **Left half** — virtual joystick (push it to the edge to sprint).
 - **Right half** — swipe to look, pinch to zoom.
 - **Buttons** — `E` interact, `⤒` jump (brake while driving), `⚡` sprint
-  toggle, `▦` map, `☰` menu, `⎋` get out of the car.
+  toggle, `⚭` hold hands, `🎙` hold to talk, `▦` map, `☰` menu, `⎋` get out of
+  the car.
 
 ## 5. Performance settings
 
@@ -151,16 +154,20 @@ Independent of the preset, the game always:
   rather than drawn (normals come from the heightfield, so there are no seams);
 - draws all traffic with InstancedMesh grouped by car kind and material role —
   a whole city of cars costs about twenty draw calls, and forty pedestrians
-  six;
+  nine;
+- merges each character's ~70 primitives down to ~30 by joint and material, so
+  a dozen people on screen cost a few dozen draws rather than eight hundred;
 - draws all vegetation with `InstancedMesh`, bucketed the same way;
 - keeps a pool of 5–7 real point lights that are reassigned each frame to the
   nearest active light sources (the island defines ~130 of them);
 - caps the device pixel ratio, shadow map size and shadow distance;
-- generates every texture procedurally at 64–256 px instead of shipping 4K maps;
+- generates every texture procedurally at 64–256 px instead of shipping 4K maps
+  — including the normal maps that give brick, roof tiles, plaster, cloth, skin
+  and car paint real relief, which cost nothing to download;
 - hides distant NPCs and freezes off-screen wildlife instances.
 
-Measured on the shipped island: roughly 650 draw calls and 0.9 M triangles at
-Medium, and 1 200 / 2.3 M at High with the full draw distance. Auto-detect picks
+Measured on the shipped island: roughly 730 draw calls and 1.4 M triangles at
+Medium, and 1 400 / 3.3 M at High with the full draw distance. Auto-detect picks
 Medium on a typical laptop and Low on phones.
 
 Physics resolution is deliberately **independent of graphics quality**: the
@@ -211,7 +218,17 @@ game-hellocouple/
     ├── map.js              minimap, full map, fast travel
     ├── save.js             persistence behind a storage adapter
     ├── ui.js               every DOM surface
-    └── net.js              the multiplayer seam (inert in v1)
+    ├── voice.js            push-to-talk companion voice + WebRTC voice chat
+    └── net.js              the multiplayer seam
+```
+
+The game is still a pure static site. The one optional extra is the signalling
+server, which exists only so two browsers can find each other for voice chat:
+
+```
+└── server/
+    ├── index.js            WebSocket signalling relay (no DB, no accounts)
+    └── package.json        one dependency: ws
 ```
 
 ## 7. Adding content
@@ -311,6 +328,16 @@ Scatter it from the world with `this.drop('feather', x, z)`. It is counted,
 saved, shown in the Collection and Inventory screens, and usable as a quest
 trigger automatically.
 
+### Adding an outfit
+
+`character.js` builds clothes over the base body in `_buildOutfit()`, hung off
+the `chest` and `hips` joints so they animate for free. A look carries two
+fields: `outfit` (`tee` `shirt` `jacket` `hoodie` `coat` `dress`) and `bottom`
+(`trousers` `shorts` `skirt`), and `bottom` also decides how much leg is bare.
+Add a branch there, then list the name in `CUSTOMIZE.outfits` in `config.js` and
+it appears in **Customize**. Changing `outfit`, `bottom` or `height` re-runs
+`_build()` (`setLook` detects it) because those change geometry, not colour.
+
 ### Adding a character or NPC
 
 Every character — player, companion, NPC, future remote player — is the same
@@ -321,8 +348,9 @@ world builder:
 this.npcSpawns.push({
   id:'ranger', name:'Bo', role:'walk',      // 'stand' | 'sit' | 'walk' | 'fish'
   x, z, wander: 14,
-  look: { skin:'#c98e64', hair:'#5b3a26', hairStyle:'short',
-          shirt:'#6fbf73', pants:'#3c5a80', shoes:'#23262e' },
+  look: { skin:'#c98e64', hair:'#5b3a26', hairStyle:'short',   // short|long|bun|ponytail
+          shirt:'#6fbf73', pants:'#3c5a80', shoes:'#23262e',
+          eyes:'#4a3324', height: 1.0 },
   lines: [
     ['The path north is steeper than it looks.', ['Good to know', 'Where should I go?']],
     ['Follow the ridge and you will find the campsite.', ['Thanks!']],
@@ -333,6 +361,30 @@ this.npcSpawns.push({
 `NPCSystem.build()` creates the character, the wander behaviour and the "Talk
 to Bo" prompt. Dialogue lines are `[text, [choice, ...]]`; the last line ends the
 conversation.
+
+**How the body is built.** `character.js` assembles a real joint hierarchy
+(hips → spine → chest → neck → head, plus four limb chains) out of capsules and
+spheres: shoulders, elbows, knees and ankles all carry a joint ball so the limbs
+never separate from the body, hands have a palm and a thumb, shoes have a sole,
+and the head carries a jaw, brow, nose, lips, ears, eyebrows and eyes with lids
+that blink. Skin, knit, denim, leather and hair each get a tiling greyscale
+detail map **and** a matching normal map generated in `textures.js`
+(`surfaceDetail` / `surfaceNormal`), so cloth reacts to the moving sun instead of
+reading as a flat block of colour. The maps are greyscale and shared by every
+character in the world — only `material.color` changes per person, so a crowd
+costs one set of textures.
+
+Those ~70 primitives would be ~70 draw calls each, so after building, `_flush()`
+merges the meshes that hang off the same joint and share a material into one
+geometry, cached globally because every character has the identical layout. A
+character costs roughly 30 draws instead of 70, and the merged pieces are marked
+`userData.shared` so teardown leaves them alone. Anything that must animate on
+its own — the eyelids — sets `userData.noMerge = true` and is skipped.
+
+Pedestrians (`traffic.js`) use the same detail and normal maps but are drawn as
+nine `InstancedMesh` parts (torso, hips, shoulders, head, hair, arms, sleeves,
+legs, shoes) with per-instance colour, height and hair length, so a crowd of 40
+costs nine draw calls in total rather than one rig each.
 
 To add a new animation, add a pose function to `character.js` (a map of joint →
 `[x, y, z]` rotations) and blend it in `Character.update()`; the damping there is
@@ -396,6 +448,13 @@ Version 1 is genuinely single-player — nothing is faked. The seam is `net.js`:
    `connect`, `disconnect`, `send`, `onPeer`, `onPeerLeft`, `connected`.
 3. Pass it to `RemotePlayers` instead of `NullNetwork` in `main.js`.
 
+`voice.js` already ships one: `VoiceChat` is a working WebRTC adapter with
+`connect`, `disconnect`, `send`, `onPeer`, `onPeerLeft` and `connected`, and
+`main.js` installs it whenever `VOICE.serverUrl` is set. Joining a voice room
+therefore already syncs the other player's character. What is *not* replicated
+yet is world state — collectibles, quest progress, weather and time of day are
+still per client.
+
 `RemotePlayers` already spawns a `Character` for each remote id it hears about,
 interpolates position and yaw, replays emotes, and sends a compact local
 snapshot ten times a second. A "couple room" is then a room id shared between
@@ -406,7 +465,97 @@ Collectibles and quests should stay client-authoritative for a cosmetic,
 non-competitive game like this one — there is nothing to cheat for — which keeps
 the server to a relay.
 
-## 11. Assets and licences
+## 11. Being a couple
+
+Three things in the game are about the two of you rather than the island.
+
+### Holding hands
+
+Press `H` (or `⚭` on touch) when you are near each other. The companion stops
+trailing behind and walks at your shoulder, and one arm on each of you is pinned
+so the hands meet and swing together. Anything that changes posture lets go on
+its own: sitting, getting in a car, swimming, jumping, or drifting more than
+5.5 m apart. It counts toward the **Hand in Hand** quest.
+
+The follow AI is in `companion.js`: `holdSpot()` returns a point beside you
+rather than behind you, and while holding the companion steers straight at it
+with a speed that tracks yours, because the usual obstacle-avoidance fan would
+visibly stretch the pair apart. The arm pose is in `character.js` — `state.hold`
+is `-1` or `+1` and replaces the locomotion swing on that one arm.
+
+### Driving together
+
+Get into any car and your partner gets in beside you. `makeCarModel()` declares
+`userData.seats` in car space; `_seatRiders()` in `main.js` rotates those into
+the world every frame and puts both characters into the seated pose, so you can
+see each other through the glass as you drive. Completes **Two Seater**.
+
+### Talking out loud
+
+Two independent systems, both in `voice.js`.
+
+**Push to talk with your companion — no server, works offline.** Hold `V` (or
+`🎙`), say something, let go. The browser's `SpeechRecognition` transcribes it,
+`voice.js` matches it against the `REPLIES` table, and the answer is spoken back
+through `speechSynthesis`. Some lines also *do* something: "hold my hand" takes
+your hand, "let's take a photo" opens photo mode, "dance" makes you both dance.
+The companion can answer questions about where you are, the time, the weather
+and your current quest — `_voiceContext()` in `main.js` decides what it knows.
+
+Add a line by adding one entry to `REPLIES`:
+
+```js
+[/\b(sing|song)\b/, (c) => `Not in front of everyone in ${c.area}.`],
+```
+
+Return `{ say, act }` instead of a string to trigger behaviour, and handle the
+new `act` in `_voiceAct()`.
+
+Speech recognition needs Chrome, Edge or Safari; Firefox has no
+`SpeechRecognition` and the game says so rather than failing. Speech *synthesis*
+works everywhere. Pick which voice answers in **Voice** → *Their voice*.
+
+**Live voice chat with a real person — needs the server.** Open the **Voice**
+tab, type the same room code as your partner, press *Join room*. After the
+handshake the microphone audio is peer-to-peer WebRTC; each voice is played
+through a `PannerNode` positioned at that player's character, so someone across
+the plaza sounds like they are across the plaza.
+
+This is the only part of the game that needs a server, and all the server does is
+introduce the two browsers to each other:
+
+```bash
+cd server
+npm install
+npm start          # listens on :8080, or $PORT
+```
+
+Then point the game at it:
+
+```js
+// js/config.js
+export const VOICE = {
+  serverUrl: 'wss://voice.example.com',   // ws:// for local testing
+  pushToTalkKey: 'V',
+};
+```
+
+Leave `serverUrl` empty and live voice chat reports itself unavailable; push to
+talk with your companion still works, because that never leaves the browser.
+
+The server keeps no accounts, no database and no history — only which socket is
+in which room, in memory. Set `ALLOWED_ORIGINS` in production (comma separated)
+so only your own site can open a socket; `MAX_ROOM` caps a room (default 8).
+It exposes `GET /health` for a platform health check. Deploy it anywhere that
+runs Node 18+ and supports WebSockets — Railway, Render, Fly.io, or a VPS
+behind nginx. Serve the game itself over HTTPS: browsers only grant microphone
+access on a secure origin.
+
+`VoiceChat` implements the same `NetworkAdapter` interface as `NullNetwork`, so
+`RemotePlayers` drives it unchanged — joining a room already syncs position, yaw
+and emotes over the WebRTC data channel alongside the audio. See §10.
+
+## 12. Assets and licences
 
 - **Three.js** — MIT, vendored at `vendor/three/three.module.min.js` with its
   licence file alongside.
@@ -419,7 +568,7 @@ There are no third-party models, textures, fonts or audio files, so there is
 nothing to attribute beyond Three.js and nothing that can break from an expired
 CDN link. The UI uses the system font stack.
 
-## 12. Browser support
+## 13. Browser support
 
 Requires WebGL2 (Chrome/Edge 79+, Firefox 51+, Safari 15+, and their mobile
 equivalents). If WebGL is unavailable the game shows a clear message instead of

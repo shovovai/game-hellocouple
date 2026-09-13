@@ -40,6 +40,8 @@ import { TrafficSystem, PedestrianSystem } from './traffic.js';
 import { AudioEngine } from './audio.js';
 import { UI } from './ui.js';
 import { RemotePlayers, NullNetwork } from './net.js';
+import { LocalVoice, VoiceChat } from './voice.js';
+import { VOICE } from './config.js';
 import { clamp } from './noise.js';
 
 class Game {
@@ -250,7 +252,8 @@ class Game {
       return v;
     });
     this.boat = new BoatRide(this.terrain, WORLD.seaLevel);
-    this.remote = new RemotePlayers(this.scene, NullNetwork);
+    this._setupVoice();
+    this.remote = new RemotePlayers(this.scene, this.voiceChat?.available ? this.voiceChat : NullNetwork);
 
     this._wireProgressEvents();
 
@@ -407,7 +410,9 @@ class Game {
       sprint: c.isSprinting(), jump,
     }, this.camRig.yaw, this.audio);
 
-    this.companion.update(dt, this.player.pos, this.player.speed);
+    this._updateVoice(c);
+    this._updateHandHolding(c);
+    this.companion.update(dt, this.player.pos, this.player.speed, { yaw: this.player.yaw });
     this.camRig.update(dt, this.player.pos);
 
     // Refresh the prompt *before* consuming the key so an interact pressed on
@@ -435,6 +440,153 @@ class Game {
   }
 
   /** Player is behind the wheel: input drives the car, camera chases it. */
+  /* ------------------------------------------------------------- voice */
+
+  /**
+   * Two independent things, both optional.
+   *
+   * `voice` is offline: the browser transcribes what you say, the companion
+   * answers out loud. `voiceChat` is a real WebRTC call with whoever joins the
+   * same room code, with each voice panned to where that player is standing.
+   */
+  _setupVoice() {
+    this.voiceStatus = '';
+    this.voice = new LocalVoice({
+      context: () => this._voiceContext(),
+      onHeard: (text) => this.ui.setVoiceState('listening', text, ''),
+      onReply: (say, act, heard) => {
+        this.ui.setVoiceState('speaking', heard, say);
+        this.save.state.stats.voiceLines = (this.save.state.stats.voiceLines || 0) + 1;
+        this.quests?.fire('activity:voice');
+        this.save.addXp(4);
+        this._voiceAct(act);
+        clearTimeout(this._voiceHide);
+        this._voiceHide = setTimeout(() => this.ui.setVoiceState('off'), 5200);
+      },
+      onState: (state) => {
+        if (state === 'listening') this.ui.setVoiceState('listening', '', '');
+        else if (state === 'error') this.ui.setVoiceState('off');
+      },
+    });
+
+    this.voiceChat = new VoiceChat({
+      url: VOICE.serverUrl,
+      ctx: this.audio?.ctx || null,
+      onState: (state, id) => {
+        this.voiceStatus = {
+          mic: 'Asking for the microphone…',
+          connecting: 'Connecting…',
+          connected: 'Connected — waiting for someone to join',
+          closed: 'Disconnected',
+          idle: 'Not connected',
+        }[state] || this.voiceStatus;
+        if (state === 'peer-joined') { this.voiceStatus = 'Someone joined'; this.ui.toast('Voice chat', 'Someone joined your room.', 'rose'); }
+        if (state === 'peer-left') this.voiceStatus = 'They left the room';
+        if (this.ui.overlayTab === 'voice' && this.ui.overlayOpen) this.ui.renderOverlay();
+      },
+    });
+  }
+
+  /** What the companion knows about right now, for answering questions. */
+  _voiceContext() {
+    const q = this.quests?.tracked;
+    const h = Math.floor(this.dayNight.time);
+    const mm = Math.floor((this.dayNight.time % 1) * 60);
+    return {
+      playerName: this.save.state.profile?.name || 'you',
+      area: this._area?.title || this._area?.name || 'the island',
+      clock: `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`,
+      weather: this.weather?.current || 'clear',
+      quest: q?.name || null,
+      timeGreeting: h < 12 ? 'Morning.' : h < 18 ? 'Afternoon.' : 'Evening.',
+    };
+  }
+
+  /** A spoken line can also do something, not just answer. */
+  _voiceAct(act) {
+    if (!act) return;
+    if (act === 'hold') this.toggleHandHolding(true);
+    else if (act === 'photo') this.togglePhotoMode(true);
+    else if (act === 'dance' || act === 'wave') {
+      this.companion.emote(act, 2.6);
+      this.player.emote(act, 2.6);
+    }
+  }
+
+  _updateVoice(c) {
+    const talk = c.consumeTalk?.();
+    if (talk === true) {
+      if (!this.voice.available) {
+        this.ui.toast('No microphone input', 'This browser cannot transcribe speech. Try Chrome, Edge or Safari.');
+      } else if (!this.voice.start()) {
+        this.ui.toast('Microphone blocked', 'Allow microphone access to talk.');
+      }
+    } else if (talk === false) {
+      this.voice.stop();
+    }
+  }
+
+  /** Join or leave the voice room named in Settings → Voice. */
+  async toggleVoiceChat() {
+    const vc = this.voiceChat;
+    if (!vc?.available) {
+      this.ui.toast('Voice chat unavailable', 'No signalling server is configured for this build.');
+      return;
+    }
+    if (vc.connected) {
+      vc.disconnect();
+      this.voiceStatus = 'Not connected';
+      this.ui.renderOverlay();
+      return;
+    }
+    try {
+      await this.audio?.resume?.();
+      vc.ctx = this.audio?.ctx || vc.ctx;
+      await vc.connect(this.save.state.settings?.voiceRoom || '', {
+        name: this.save.state.profile?.name || 'Player',
+        look: this.save.state.look,
+      });
+    } catch (err) {
+      this.voiceStatus = err.message;
+      this.ui.toast('Could not join', err.message);
+    }
+    this.ui.renderOverlay();
+  }
+
+  /**
+   * Hand holding. The companion walks beside you instead of behind you and one
+   * arm on each of you is pinned; anything that changes posture (sitting,
+   * driving, sprinting away, a long separation) lets go on its own.
+   */
+  toggleHandHolding(on = !this.companion.holding) {
+    if (on) {
+      if (this.driving || this.player.sitting || this.companion.sitting) return;
+      const d = Math.hypot(this.companion.pos.x - this.player.pos.x,
+        this.companion.pos.z - this.player.pos.z);
+      if (d > 4.5) { this.ui.toast('Too far apart to hold hands'); return; }
+      this.companion.holding = true;
+      this.player.hold = -this.companion.holdSide;
+      this.ui.toast('Holding hands');
+      this.save.state.stats.handHolds = (this.save.state.stats.handHolds || 0) + 1;
+      this.quests?.fire('activity:holdHands');
+    } else {
+      this.companion.holding = false;
+      this.player.hold = 0;
+    }
+    this.ui.setHolding?.(this.companion.holding);
+  }
+
+  _updateHandHolding(c) {
+    if (c.consumeHold && c.consumeHold()) this.toggleHandHolding();
+    if (!this.companion.holding) return;
+    const d = Math.hypot(this.companion.pos.x - this.player.pos.x,
+      this.companion.pos.z - this.player.pos.z);
+    if (this.player.sitting || this.companion.sitting || this.driving || d > 5.5
+        || this.player.swimming || !this.player.grounded) {
+      this.toggleHandHolding(false);
+    }
+  }
+
   _updateDriving(dt, move, interact, c) {
     const v = this.driving;
     const braking = c.brakeHeld;
@@ -445,9 +597,8 @@ class Game {
     const back = { x: v.pos.x - Math.sin(v.heading) * 0.2, z: v.pos.z - Math.cos(v.heading) * 0.2 };
     this.player.pos.set(back.x, v.pos.y + 0.9, back.z);
     this.player.yaw = v.heading;
-    this.player.root.visible = false;
     this.companion.pos.set(back.x, v.pos.y + 0.9, back.z);
-    this.companion.root.visible = false;
+    this._seatRiders(dt, v);
 
     // camera sits further back and lower the faster you go
     const speedFrac = Math.min(1, v.kmh / 120);
@@ -474,13 +625,43 @@ class Game {
     if (interact) this._exitCar();
   }
 
+  /**
+   * Put both of you in the car and keep you there.
+   *
+   * The seats are declared in car space by `makeCarModel`, so this only has to
+   * rotate them into the world each frame. Both characters stay visible and
+   * sitting — you can see your partner in the passenger seat through the glass,
+   * which is the whole point of driving together.
+   */
+  _seatRiders(dt, v) {
+    const seats = v.model.userData.seats;
+    if (!seats) {
+      this.player.root.visible = false;
+      this.companion.root.visible = false;
+      return;
+    }
+    const cs = Math.cos(v.heading), sn = Math.sin(v.heading);
+    const place = (who, seat) => {
+      const wx = v.pos.x + seat.x * cs + seat.z * sn;
+      const wz = v.pos.z - seat.x * sn + seat.z * cs;
+      // the seated rig puts the hips at the root, so drop by the seat height
+      who.root.visible = true;
+      who.root.position.set(wx, v.pos.y + seat.y - 0.74, wz);
+      who.root.rotation.set(v.model.rotation.x, v.heading, v.model.rotation.z);
+      who.character.update(dt, { speed: 0, grounded: true, sitting: true });
+    };
+    place(this.player, seats.driver);
+    if (this.companion.enabled) place(this.companion, seats.passenger);
+    else this.companion.root.visible = false;
+  }
+
   _enterCar(car) {
     const v = car.vehicle;
     if (!v) return;
     this.driving = v;
     v.setLights(this.dayNight.state.night > 0.35);
-    this.player.root.visible = false;
-    this.companion.root.visible = false;
+    this.toggleHandHolding(false);
+    this.companion.sitting = true;
     this.camRig.targetDistance = 9;
     this.camRig.snap({ x: v.pos.x, y: v.pos.y, z: v.pos.z }, v.heading + Math.PI);
     this.ui.setDriving(true, car.kind.charAt(0).toUpperCase() + car.kind.slice(1));
@@ -488,6 +669,11 @@ class Game {
     this.save.flag('drove');
     this.quests.activity('drive');
     this.save.addXp(12);
+    if (this.companion.enabled) {
+      this.quests.fire('activity:coupleDrive');
+      this.save.state.stats.coupleDrives = (this.save.state.stats.coupleDrives || 0) + 1;
+      this.ui.toast(`${this.companion.name} got in`, 'Riding shotgun.', 'rose');
+    }
     if (!this.save.state.flags.drivingTip) {
       this.save.flag('drivingTip');
       this.ui.toast('Driving', 'W/S accelerate, A/D steer, Space brake, E to get out.', 'rose');
@@ -502,6 +688,8 @@ class Game {
     this.driving = null;
     this.player.root.visible = true;
     this.companion.root.visible = true;
+    this.companion.sitting = false;
+    this.player.root.rotation.set(0, this.player.yaw, 0);
     this.player.teleport(spot.x, spot.z, v.heading + Math.PI / 2);
     this.companion.teleportNear(this.player.pos, this.player.yaw);
     this.camRig.targetDistance = 6.2;
@@ -546,6 +734,14 @@ class Game {
     if (this.pedestrians) this.pedestrians.update(dt, focus, this.time);
     if (this.driving) this.driving.setLights(this.dayNight.state.night > 0.35);
     this.remote.update(dt, this.player);
+    if (this.voiceChat?.connected) {
+      const cam = this.camRig.camera;
+      cam.getWorldDirection(this._camFwd || (this._camFwd = new THREE.Vector3()));
+      this.voiceChat.setListener(cam.position, this._camFwd);
+      for (const [id, p] of this.remote.peers) {
+        this.voiceChat.setPeerPosition(id, p.ch.root.position.x, p.ch.root.position.y + 1.5, p.ch.root.position.z);
+      }
+    }
     if (this.fishing.state === 'waiting' || this.fishing.state === 'active') {
       this.fishing.update(this.dtReal || dt);
       this.ui.updateFishing(this.fishing);
@@ -1116,6 +1312,8 @@ class Game {
     this.weather?.dispose();
     this.terrain?.dispose();
     this.remote?.dispose();
+    this.voice?.dispose();
+    this.voiceChat?.disconnect();
 
     const keep = new Set(Object.values(materials()));
     this.scene.traverse(o => {
@@ -1161,6 +1359,7 @@ class Game {
     else if (code === 'KeyC') this.ui.toggleEmoteWheel();
     else if (code === 'KeyP') this.togglePhotoMode();
     else if (code === 'KeyF') this.toggleFullscreen();
+    else if (code === 'KeyH') this.toggleHandHolding();
   }
 }
 

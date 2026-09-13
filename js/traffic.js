@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { materials } from './materials.js';
 import { CAR_KINDS, CAR_COLORS, carRoleGeometries, wheelGeometries } from './vehicle.js';
 import { clamp, wrapAngle, makeRng } from './noise.js';
+import * as TEX from './textures.js';
 
 const KINDS = ['sedan', 'suv', 'van', 'taxi', 'pickup', 'sports'];
 const LANE = 3.1;                     // metres right of the centre-line
@@ -278,23 +279,58 @@ export class PedestrianSystem {
     scene.add(this.group);
 
     const skinTones = [0xf4d4bd, 0xe8bc9a, 0xc98e64, 0x9c6440, 0x6e442a];
-    const shirtTones = [0xff7a9c, 0x4f9fd8, 0xf0e6d2, 0x6fbf73, 0xff8b6b, 0x2b2f38, 0xe0b23c];
-    const mk = (geo, color, count, shadow = false) => {
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.82 });
+    const shirtTones = [0xff7a9c, 0x4f9fd8, 0xf0e6d2, 0x6fbf73, 0xff8b6b, 0x2b2f38, 0xe0b23c, 0x8d6cc4];
+    const hairTones = [0x241a12, 0x3a2a1c, 0x6b4a2c, 0xb08f5e, 0x141414, 0x8a5a3a];
+    const shoeTones = [0x2b2724, 0x4a4340, 0xdad3c8, 0x6a4a34];
+
+    // One material per surface so every pedestrian shares the same detail and
+    // normal maps as the hero characters — only the instance colour changes.
+    const matFor = (kind, roughness, normalScale) => {
+      const map = TEX.surfaceDetail(kind);
+      const normalMap = TEX.surfaceNormal(kind);
+      map.repeat.set(2, 3);
+      normalMap.repeat.set(2, 3);
+      return new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness, map, normalMap,
+        normalScale: new THREE.Vector2(normalScale, normalScale),
+      });
+    };
+    this.mats = {
+      skin: matFor('skin', 0.58, 0.3),
+      knit: matFor('knit', 0.84, 0.6),
+      denim: matFor('denim', 0.88, 0.7),
+      hair: matFor('hair', 0.44, 0.8),
+      leather: matFor('leather', 0.55, 0.8),
+    };
+
+    const mk = (geo, mat, count, shadow = false) => {
       const im = new THREE.InstancedMesh(geo, mat, Math.max(1, count));
       im.frustumCulled = false;
       im.castShadow = shadow;
+      im.receiveShadow = shadow;
       this.group.add(im);
       return im;
     };
+    // Scale is baked into the geometry so that one instanced draw can still
+    // give the body non-round proportions.
+    const caps = (r, l, sx, sy, sz, seg = 7) =>
+      new THREE.CapsuleGeometry(r, l, 2, seg).scale(sx, sy, sz);
+    const sph = (r, sx, sy, sz, seg = 10) =>
+      new THREE.SphereGeometry(r, seg, seg - 2).scale(sx, sy, sz);
+
     const n = Math.max(1, this.count);
+    const M = this.mats;
     this.parts = {
-      torso: mk(new THREE.CapsuleGeometry(0.17, 0.42, 2, 7), 0xffffff, n, true),
-      head: mk(new THREE.SphereGeometry(0.115, 10, 8), 0xffffff, n, true),
-      legL: mk(new THREE.CapsuleGeometry(0.07, 0.5, 2, 6), 0x3c5a80, n),
-      legR: mk(new THREE.CapsuleGeometry(0.07, 0.5, 2, 6), 0x3c5a80, n),
-      armL: mk(new THREE.CapsuleGeometry(0.055, 0.42, 2, 6), 0xffffff, n),
-      armR: mk(new THREE.CapsuleGeometry(0.055, 0.42, 2, 6), 0xffffff, n),
+      torso: mk(caps(0.155, 0.34, 1.22, 1, 0.78), M.knit, n, true),
+      hips: mk(caps(0.135, 0.12, 1.15, 1, 0.85), M.denim, n, true),
+      shoulders: mk(sph(0.1, 1.78, 0.62, 0.92), M.knit, n),
+      head: mk(sph(0.105, 1, 1.14, 1.06, 12), M.skin, n, true),
+      hair: mk(new THREE.SphereGeometry(0.112, 12, 9, 0, Math.PI * 2, 0, Math.PI * 0.62)
+        .scale(1.03, 1.16, 1.08), M.hair, n, true),
+      arms: mk(caps(0.05, 0.4, 1, 1, 0.95), M.skin, n * 2),
+      sleeves: mk(caps(0.058, 0.15, 1, 1, 0.95), M.knit, n * 2),
+      legs: mk(caps(0.07, 0.42, 1, 1, 0.95), M.denim, n * 2, true),
+      shoes: mk(new THREE.BoxGeometry(0.095, 0.065, 0.235), M.leather, n * 2),
     };
 
     this.peds = [];
@@ -304,25 +340,33 @@ export class PedestrianSystem {
       const b = blocks[(this.rng() * blocks.length) | 0];
       const hw = b.w / 2 + pad, hd = b.d / 2 + pad;
       const perim = 4 * (hw + hd);
-      const skin = new THREE.Color(skinTones[(this.rng() * skinTones.length) | 0]);
-      const shirt = new THREE.Color(shirtTones[(this.rng() * shirtTones.length) | 0]);
       this.peds.push({
         cx: b.x, cz: b.z, hw, hd, perim,
         s: this.rng() * perim,
         speed: (0.9 + this.rng() * 0.7) * (this.rng() < 0.5 ? 1 : -1),
-        phase: this.rng() * 6.28, skin, shirt,
+        phase: this.rng() * 6.28,
+        // build varies height and bulk a little so a crowd isn't clones
+        tall: 0.93 + this.rng() * 0.14,
+        longHair: this.rng() < 0.42,
         x: 0, z: 0, y: 0, heading: 0, visible: true,
       });
     }
+    const pick = (arr) => new THREE.Color(arr[(this.rng() * arr.length) | 0]);
     for (let i = 0; i < this.peds.length; i++) {
-      const p = this.peds[i];
-      this.parts.head.setColorAt(i, p.skin);
-      this.parts.torso.setColorAt(i, p.shirt);
-      this.parts.armL.setColorAt(i, p.skin);
-      this.parts.armR.setColorAt(i, p.skin);
-      const trousers = new THREE.Color(0.6 + this.rng() * 0.5, 0.6 + this.rng() * 0.4, 0.65 + this.rng() * 0.5);
-      this.parts.legL.setColorAt(i, trousers);
-      this.parts.legR.setColorAt(i, trousers);
+      const skin = pick(skinTones), shirt = pick(shirtTones);
+      const hair = pick(hairTones), shoe = pick(shoeTones);
+      const trousers = new THREE.Color().setHSL(0.05 + this.rng() * 0.6, 0.12 + this.rng() * 0.3, 0.18 + this.rng() * 0.4);
+      this.parts.head.setColorAt(i, skin);
+      this.parts.hair.setColorAt(i, hair);
+      this.parts.torso.setColorAt(i, shirt);
+      this.parts.shoulders.setColorAt(i, shirt);
+      this.parts.hips.setColorAt(i, trousers);
+      for (const k of [0, 1]) {
+        this.parts.arms.setColorAt(i * 2 + k, skin);
+        this.parts.sleeves.setColorAt(i * 2 + k, shirt);
+        this.parts.legs.setColorAt(i * 2 + k, trousers);
+        this.parts.shoes.setColorAt(i * 2 + k, shoe);
+      }
     }
     for (const im of Object.values(this.parts)) if (im.instanceColor) im.instanceColor.needsUpdate = true;
 
@@ -361,15 +405,15 @@ export class PedestrianSystem {
         p.heading = p.speed > 0 ? w.h : w.h + Math.PI;
       }
 
-      const setPart = (im, x, y, z, rx, ry, rz) => {
+      const setPart = (im, idx, x, y, z, rx, ry, rz, sx = 1, sy = 1, sz = 1) => {
         if (!visible) {
           this._m.compose(this._p.set(0, -9999, 0), this._q.identity(), this._zero);
         } else {
           this._e.set(rx, ry, rz);
           this._q.setFromEuler(this._e);
-          this._m.compose(this._p.set(x, y, z), this._q, this._s.set(1, 1, 1));
+          this._m.compose(this._p.set(x, y, z), this._q, this._s.set(sx, sy, sz));
         }
-        im.setMatrixAt(i, this._m);
+        im.setMatrixAt(idx, this._m);
       };
 
       const gait = Math.sin(time * 6.5 * Math.sign(p.speed || 1) + p.phase);
@@ -377,32 +421,42 @@ export class PedestrianSystem {
       const h = p.heading;
       const fwd = { x: Math.sin(h), z: Math.cos(h) };
       const side = { x: Math.cos(h), z: -Math.sin(h) };
+      const T = p.tall;
       const base = p.y + bob;
+      const at = (yy) => base + yy * T;
 
-      setPart(this.parts.torso, p.x, base + 1.12, p.z, 0.04, h, 0);
-      setPart(this.parts.head, p.x, base + 1.50, p.z, 0, h, 0);
-      for (const [im, sgn, sx] of [[this.parts.legL, 1, -1], [this.parts.legR, -1, 1]]) {
+      setPart(this.parts.hips, i, p.x, at(0.86), p.z, 0, h, 0);
+      setPart(this.parts.torso, i, p.x, at(1.13), p.z, 0.045, h, 0);
+      setPart(this.parts.shoulders, i, p.x, at(1.40), p.z, 0.02, h, 0);
+      setPart(this.parts.head, i, p.x, at(1.585), p.z, 0, h + Math.sin(time * 0.7 + p.phase) * 0.12, 0);
+      setPart(this.parts.hair, i, p.x, at(1.585), p.z,
+        0, h + Math.sin(time * 0.7 + p.phase) * 0.12, 0,
+        1, p.longHair ? 1.5 : 1, p.longHair ? 1.12 : 1);
+
+      for (const [k, sgn, sx] of [[0, 1, -1], [1, -1, 1]]) {
         const swing = gait * sgn * 0.45;
-        setPart(im,
-          p.x + side.x * sx * 0.10 + fwd.x * swing * 0.24,
-          base + 0.45,
-          p.z + side.z * sx * 0.10 + fwd.z * swing * 0.24,
-          swing, h, 0);
+        const lx = p.x + side.x * sx * 0.085, lz = p.z + side.z * sx * 0.085;
+        setPart(this.parts.legs, i * 2 + k,
+          lx + fwd.x * swing * 0.24, at(0.47), lz + fwd.z * swing * 0.24, swing, h, 0);
+        setPart(this.parts.shoes, i * 2 + k,
+          lx + fwd.x * (swing * 0.46 + 0.03), at(0.065) + Math.max(0, swing) * 0.06,
+          lz + fwd.z * (swing * 0.46 + 0.03), swing * 0.35, h, 0);
       }
-      for (const [im, sgn, sx] of [[this.parts.armL, -1, -1], [this.parts.armR, 1, 1]]) {
+      for (const [k, sgn, sx] of [[0, -1, -1], [1, 1, 1]]) {
         const swing = gait * sgn * 0.4;
-        setPart(im,
-          p.x + side.x * sx * 0.23 + fwd.x * swing * 0.2,
-          base + 1.16,
-          p.z + side.z * sx * 0.23 + fwd.z * swing * 0.2,
-          swing, h, sx * 0.08);
+        const ax = p.x + side.x * sx * 0.195, az = p.z + side.z * sx * 0.195;
+        setPart(this.parts.arms, i * 2 + k,
+          ax + fwd.x * swing * 0.2, at(1.16), az + fwd.z * swing * 0.2, swing, h, sx * 0.07);
+        setPart(this.parts.sleeves, i * 2 + k,
+          ax + fwd.x * swing * 0.09, at(1.30), az + fwd.z * swing * 0.09, swing * 0.5, h, sx * 0.07);
       }
     }
     for (const im of Object.values(this.parts)) im.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
-    for (const im of Object.values(this.parts)) { im.geometry.dispose(); im.material.dispose(); }
+    for (const im of Object.values(this.parts)) im.geometry.dispose();
+    for (const m of Object.values(this.mats)) m.dispose();
     this.scene.remove(this.group);
   }
 }
