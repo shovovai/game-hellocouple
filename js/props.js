@@ -751,37 +751,3 @@ export function makeShellProp(kind = 0) {
 }
 
 export { UNIT };
-
-/**
- * Helipad: a painted circle with an H, a lip and marker lights. Gives the
- * helicopter somewhere obvious to sit and somewhere obvious to come back to.
- */
-export function makeHelipad(r = 7) {
-  const m = M();
-  const g = grp();
-  const pad = C(m.asphalt, r, 0.16, 0, 0.08, 0, r, 28);
-  pad.receiveShadow = true;
-  g.add(pad);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.78, r * 0.86, 30), m.white);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.17;
-  g.add(ring);
-  // the H
-  for (const sx of [-1, 1]) g.add(B(m.white, 0.5, 0.03, r * 0.9, sx * r * 0.26, 0.17, 0));
-  g.add(B(m.white, r * 0.52, 0.03, 0.5, 0, 0.17, 0));
-  // kerb and lights
-  const lip = new THREE.Mesh(new THREE.TorusGeometry(r, 0.1, 6, 30), m.metal);
-  lip.rotation.x = Math.PI / 2;
-  lip.position.y = 0.1;
-  g.add(lip);
-  const lampMat = new THREE.MeshStandardMaterial({
-    color: 0xffb4a0, emissive: 0xff5a3c, emissiveIntensity: 1.2, roughness: 0.4,
-  });
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    g.add(C(lampMat, 0.12, 0.2, Math.cos(a) * r * 0.96, 0.2, Math.sin(a) * r * 0.96, 0.12, 6));
-  }
-  g.userData.cols = [];
-  g.userData.platform = { x: 0, z: 0, r, y: 0.16 };
-  return g;
-}

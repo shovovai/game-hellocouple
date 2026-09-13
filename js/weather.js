@@ -31,7 +31,6 @@ export class Weather {
 
     const count = Math.floor(4200 * quality.particles);
     this.count = count;
-    this.activeCount = count;      // scaled at runtime by the perf governor
     const pos = new Float32Array(count * 3);
     const spd = new Float32Array(count);
     this.area = 34;
@@ -112,7 +111,7 @@ export class Weather {
       const p = this.positions;
       const a = this.area;
       this.rain.position.set(focus.x, focus.y, focus.z);
-      for (let i = 0; i < this.activeCount; i++) {
+      for (let i = 0; i < this.count; i++) {
         p[i * 3 + 1] -= this.speeds[i] * dt;
         p[i * 3] -= dt * 3.5 * this.values.wind;
         if (p[i * 3 + 1] < -4) {
@@ -133,11 +132,6 @@ export class Weather {
   get icon() {
     const l = this.label;
     return l === 'rain' ? '🌧' : l === 'cloudy' ? '☁' : '☀';
-  }
-
-  /** Scale how many raindrops are simulated, without rebuilding the buffer. */
-  setScale(frac) {
-    this.activeCount = Math.max(0, Math.round(this.count * Math.min(1, Math.max(0, frac))));
   }
 
   dispose() {

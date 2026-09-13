@@ -80,24 +80,6 @@ export class MapSystem {
     }
     ctx.putImageData(img, 0, 0);
 
-    // downtown: block footprints first, then the street grid over them
-    const city = this.network.city;
-    if (city) {
-      ctx.fillStyle = 'rgba(120,124,130,0.92)';
-      for (const b of city.blocks) {
-        const p0 = this.toPx(b.x - b.w / 2, b.z - b.d / 2);
-        const p1 = this.toPx(b.x + b.w / 2, b.z + b.d / 2);
-        ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
-      }
-      ctx.fillStyle = 'rgba(176,180,186,0.85)';
-      for (const b of city.blocks) {
-        if (b.kind !== 'plaza') continue;
-        const p0 = this.toPx(b.x - b.w / 2, b.z - b.d / 2);
-        const p1 = this.toPx(b.x + b.w / 2, b.z + b.d / 2);
-        ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
-      }
-    }
-
     // roads and trails
     for (const road of this.network.roads) {
       ctx.beginPath();
@@ -105,9 +87,8 @@ export class MapSystem {
         const q = this.toPx(p[0], p[1]);
         i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y);
       });
-      ctx.strokeStyle = road.city ? 'rgba(246,242,232,0.95)'
-        : road.kind === 'road' ? 'rgba(238,230,214,0.92)' : 'rgba(206,180,140,0.75)';
-      ctx.lineWidth = road.city ? 2.6 : road.kind === 'road' ? 3.4 : 2.0;
+      ctx.strokeStyle = road.kind === 'road' ? 'rgba(238,230,214,0.92)' : 'rgba(206,180,140,0.75)';
+      ctx.lineWidth = road.kind === 'road' ? 3.4 : 2.0;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.stroke();

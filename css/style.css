@@ -156,16 +156,6 @@ body{overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-se
   font:700 12px/1 var(--font);
 }
 
-#speedo{
-  position:absolute;right:16px;bottom:calc(18px + var(--safe-b));
-  padding:12px 16px 11px;border-radius:16px;min-width:132px;text-align:right;
-}
-.sp-num{font:700 30px/1 var(--font);font-variant-numeric:tabular-nums;letter-spacing:-.5px}
-.sp-num small{font:600 11px/1 var(--font);color:var(--ink-faint);margin-left:5px;letter-spacing:.08em}
-.sp-bar{margin-top:8px;height:4px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
-.sp-bar span{display:block;height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--aqua),var(--gold),var(--rose));transition:width .1s linear}
-.sp-name{margin-top:7px;font:600 10.5px/1 var(--font);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-faint)}
-
 #toast-stack{position:absolute;right:14px;bottom:calc(14px + var(--safe-b));display:flex;flex-direction:column;gap:8px;align-items:flex-end;max-width:min(340px,80vw)}
 .toast{
   background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
@@ -389,9 +379,6 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   .ov-tabs button{padding:8px 10px;font-size:12px}
 }
 @media (max-width:640px){
-  #speedo{min-width:104px;padding:9px 12px 8px;right:12px;bottom:calc(96px + var(--safe-b))}
-  .sp-num{font-size:22px}
-  .sp-name{display:none}
   #minimap-wrap{width:112px;height:112px}
   .hud-row{gap:6px}
   .stat-chip{padding:7px 10px;font-size:12.5px}
@@ -413,83 +400,3 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
-
-/* ---------------------------------------------------------------- voice */
-#voice-strip {
-  position: fixed;
-  left: 50%;
-  bottom: 92px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  max-width: min(560px, 92vw);
-  padding: 10px 16px;
-  border-radius: 16px;
-  background: rgba(18, 18, 24, 0.72);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f4f1ec;
-  font-size: 14px;
-  z-index: 40;
-  pointer-events: none;
-}
-#voice-dot {
-  width: 11px;
-  height: 11px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #6b7280;
-}
-#voice-strip.listening #voice-dot { background: #ff4d6d; animation: voice-pulse 1s ease-in-out infinite; }
-#voice-strip.speaking  #voice-dot { background: #4fd1c5; }
-@keyframes voice-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50%      { transform: scale(1.45); opacity: 0.55; }
-}
-#voice-text { min-width: 0; }
-#voice-heard { opacity: 0.72; font-style: italic; overflow-wrap: anywhere; }
-#voice-reply { font-weight: 600; overflow-wrap: anywhere; }
-#voice-heard:empty, #voice-reply:empty { display: none; }
-.voice-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-/* --------------------------------------------------------------- grading */
-/*
- * A colour-grade and vignette pass done in CSS rather than in a render target.
- * A real post-processing chain would mean a second framebuffer and a fullscreen
- * shader every frame; this costs the GPU nothing, and on a phone that matters
- * more than the extra control would.
- */
-#grade {
-  position: fixed;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-  mix-blend-mode: multiply;
-  background:
-    radial-gradient(ellipse 140% 115% at 50% 45%,
-      rgba(255, 255, 255, 1) 55%,
-      rgba(247, 245, 244, 1) 80%,
-      rgba(224, 222, 228, 1) 100%);
-  transition: background 1.6s linear, opacity 1.6s linear;
-}
-#grade.warm {
-  background:
-    radial-gradient(ellipse 140% 115% at 50% 45%,
-      rgba(255, 253, 249, 1) 52%,
-      rgba(253, 243, 232, 1) 78%,
-      rgba(232, 216, 208, 1) 100%);
-}
-#grade.night {
-  background:
-    radial-gradient(ellipse 135% 110% at 50% 47%,
-      rgba(240, 244, 255, 1) 46%,
-      rgba(220, 228, 248, 1) 76%,
-      rgba(178, 188, 220, 1) 100%);
-}
-/* Photo mode wants the clean image. */
-body.photo #grade { opacity: 0; }

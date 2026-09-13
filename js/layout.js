@@ -48,10 +48,10 @@ function minGround(x, z) {
 }
 
 /** Spiral-search for the flattest piece of dry land near an anchor. */
-function snapInland(terrain, ax, az, searchR = 90) {
+function snapInland(terrain, ax, az, searchR = 54) {
   let best = null;
-  for (let r = 0; r <= searchR; r += 5) {
-    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 0.55));
+  for (let r = 0; r <= searchR; r += 4) {
+    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 0.9));
     for (let i = 0; i < steps; i++) {
       const a = (i / steps) * Math.PI * 2;
       const x = ax + Math.cos(a) * r;
@@ -67,10 +67,10 @@ function snapInland(terrain, ax, az, searchR = 90) {
 }
 
 /** Find high, walkable ground — used for viewpoints. */
-function snapPeak(terrain, ax, az, searchR = 95) {
+function snapPeak(terrain, ax, az, searchR = 56) {
   let best = null;
-  for (let r = 0; r <= searchR; r += 5) {
-    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 0.5));
+  for (let r = 0; r <= searchR; r += 4) {
+    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 0.8));
     for (let i = 0; i < steps; i++) {
       const a = (i / steps) * Math.PI * 2;
       const x = ax + Math.cos(a) * r;
@@ -89,8 +89,7 @@ function snapShore(terrain, ax, az, offset = 14) {
   const ang = Math.atan2(az, ax);
   const cos = Math.cos(ang), sin = Math.sin(ang);
   let shore = WORLD.shoreRadius;
-  const maxR = terrain.half * 1.45;
-  for (let r = 80; r < maxR; r += 2) {
+  for (let r = 60; r < 360; r += 1.5) {
     const h = terrain.sampleBase(cos * r, sin * r);
     if (h < 0.35) { shore = r; break; }
   }
@@ -265,14 +264,7 @@ export function buildNetwork(terrain, L) {
     },
   ];
 
-  // Downtown streets join the same network the island roads use, so they get
-  // flattened, drawn and driven by exactly the same code.
-  const city = buildCity(terrain, L);
-  for (const st of city.streets) {
-    roads.push({ id: 'city-' + roads.length, kind: 'road', width: st.width, pts: st.pts, city: true });
-  }
-
-  return { roads, rivers, city };
+  return { roads, rivers };
 }
 
 /**
@@ -298,21 +290,12 @@ export function registerTerrainShaping(terrain, L, network) {
     else terrain.addFlatZone(p.x, p.z, r, f, null, 0.92);
   }
 
-  // One big level plateau under downtown — a city needs drivable ground.
-  if (network.city) {
-    const ct = network.city;
-    const cy = terrain.sampleBase(ct.x, ct.z);
-    terrain.addFlatRect(ct.x, ct.z, ct.spanX / 2 + 26, ct.spanZ / 2 + 26, 90, cy, 1);
-  }
-
   for (const r of network.roads) {
     terrain.addPath(r.pts, {
       width: r.width * 0.75,
       feather: r.kind === 'road' ? 11 : 7,
       smooth: r.kind === 'road' ? 0.62 : 0.45,
-      // City streets sit on the downtown plateau already. Re-flattening them to
-      // their own raw-ground profile would put the bumps straight back.
-      strength: r.city ? 0 : 1,
+      strength: 1,
     });
   }
   for (const r of network.rivers) {
@@ -334,154 +317,3 @@ export function registerTerrainShaping(terrain, L, network) {
 }
 
 export { clamp };
-
-/* ------------------------------------------------------------ the city */
-
-/**
- * Downtown street grid.
- *
- * Produces pure geometry — block rectangles, street centre-lines and
- * intersections — which terrain flattening, the mesh builder in city.js and
- * the traffic graph all consume. Nothing here touches Three.js.
- */
-export function buildCity(terrain, L) {
-  const c = L.get('town');
-  const COLS = 5, ROWS = 5;              // blocks — odd, so there is a true centre
-  const BLOCK = 70;                      // block size, metres
-  const AVENUE = 15;                     // wide streets (N-S)
-  const STREET = 11;                     // cross streets (E-W)
-
-  const spanX = COLS * BLOCK + (COLS + 1) * AVENUE;
-  const spanZ = ROWS * BLOCK + (ROWS + 1) * STREET;
-  const x0 = c.x - spanX / 2;
-  const z0 = c.z - spanZ / 2;
-
-  // street centre-lines
-  const avenueX = [];
-  for (let i = 0; i <= COLS; i++) avenueX.push(x0 + AVENUE / 2 + i * (BLOCK + AVENUE));
-  const streetZ = [];
-  for (let j = 0; j <= ROWS; j++) streetZ.push(z0 + STREET / 2 + j * (BLOCK + STREET));
-
-  const streets = [];
-  for (const x of avenueX) {
-    streets.push({ kind: 'avenue', width: AVENUE, pts: [[x, z0 - 6], [x, z0 + spanZ + 6]] });
-  }
-  for (const z of streetZ) {
-    streets.push({ kind: 'street', width: STREET, pts: [[x0 - 6, z], [x0 + spanX + 6, z]] });
-  }
-
-  // blocks, tagged by how close they are to the middle of downtown
-  const blocks = [];
-  const midC = (COLS - 1) / 2, midR = (ROWS - 1) / 2;
-  for (let r = 0; r < ROWS; r++) {
-    for (let i = 0; i < COLS; i++) {
-      const bx = x0 + AVENUE + i * (BLOCK + AVENUE) + BLOCK / 2;
-      const bz = z0 + STREET + r * (BLOCK + STREET) + BLOCK / 2;
-      const ring = Math.max(Math.abs(i - midC), Math.abs(r - midR));
-      blocks.push({
-        x: bx, z: bz, w: BLOCK, d: BLOCK, col: i, row: r, ring,
-        // centre block is the civic plaza, the rest are built up
-        kind: ring === 0 ? 'plaza' : ring <= 1 ? 'tower' : ((i + r) % 2 ? 'midrise' : 'low'),
-      });
-    }
-  }
-
-  // Reserve the block the café sits in so downtown does not build over it.
-  const cafe = L.get('cafe');
-  if (cafe) {
-    let best = null, bestD = Infinity;
-    for (const b of blocks) {
-      if (b.ring === 0) continue;              // never take the plaza
-      const d = Math.hypot(b.x - cafe.x, b.z - cafe.z);
-      if (d < bestD) { bestD = d; best = b; }
-    }
-    if (best) { best.kind = 'reserved'; best.reservedFor = 'cafe'; }
-  }
-
-  const intersections = [];
-  for (const x of avenueX) for (const z of streetZ) intersections.push({ x, z });
-
-  return {
-    x: c.x, z: c.z, x0, z0, spanX, spanZ, BLOCK, AVENUE, STREET,
-    avenueX, streetZ, streets, blocks, intersections,
-    radius: Math.max(spanX, spanZ) / 2,
-  };
-}
-
-/* ------------------------------------------------------- traffic graph */
-
-/**
- * Node/edge graph the traffic system drives on. Built from the city grid plus
- * a sampled loop of the coastal ring road, with the two joined at the city's
- * nearest gateway so cars can leave downtown and tour the island.
- */
-export function buildRoadGraph(city, roads) {
-  const nodes = [];
-  const key = new Map();
-  const at = (x, z) => {
-    const k = Math.round(x / 2) + ':' + Math.round(z / 2);
-    let i = key.get(k);
-    if (i === undefined) {
-      i = nodes.length;
-      nodes.push({ x, z, links: [] });
-      key.set(k, i);
-    }
-    return i;
-  };
-  const link = (a, b, width, kind) => {
-    if (a === b) return;
-    if (nodes[a].links.some(l => l.to === b)) return;
-    nodes[a].links.push({ to: b, width, kind });
-    nodes[b].links.push({ to: a, width, kind });
-  };
-
-  // city grid: every intersection wired to its neighbours
-  const gi = [];
-  for (let r = 0; r < city.streetZ.length; r++) {
-    gi.push([]);
-    for (let i = 0; i < city.avenueX.length; i++) {
-      gi[r].push(at(city.avenueX[i], city.streetZ[r]));
-    }
-  }
-  for (let r = 0; r < gi.length; r++) {
-    for (let i = 0; i < gi[r].length; i++) {
-      if (i + 1 < gi[r].length) link(gi[r][i], gi[r][i + 1], city.STREET, 'street');
-      if (r + 1 < gi.length) link(gi[r][i], gi[r + 1][i], city.AVENUE, 'avenue');
-    }
-  }
-
-  // island ring roads, sampled into nodes
-  const ringNodes = [];
-  for (const road of roads) {
-    if (road.kind !== 'road' || road.city) continue;
-    let prev = -1, acc = 1e9;
-    for (let i = 0; i < road.pts.length; i++) {
-      const [x, z] = road.pts[i];
-      if (i > 0) acc += Math.hypot(x - road.pts[i - 1][0], z - road.pts[i - 1][1]);
-      if (acc < 26 && i !== road.pts.length - 1) continue;
-      acc = 0;
-      const n = at(x, z);
-      ringNodes.push(n);
-      if (prev >= 0) link(prev, n, road.width, 'highway');
-      prev = n;
-    }
-  }
-
-  // join the ring to the nearest city edge node so traffic can flow both ways
-  const edgeNodes = [];
-  for (let r = 0; r < gi.length; r++) {
-    for (let i = 0; i < gi[r].length; i++) {
-      if (r === 0 || i === 0 || r === gi.length - 1 || i === gi[r].length - 1) edgeNodes.push(gi[r][i]);
-    }
-  }
-  for (const rn of ringNodes) {
-    let best = -1, bestD = 150;
-    for (const en of edgeNodes) {
-      const d = Math.hypot(nodes[rn].x - nodes[en].x, nodes[rn].z - nodes[en].z);
-      if (d < bestD) { bestD = d; best = en; }
-    }
-    if (best >= 0) link(rn, best, 12, 'link');
-  }
-
-  return { nodes, cityNodes: gi.flat() };
-}

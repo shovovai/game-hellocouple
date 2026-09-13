@@ -28,7 +28,6 @@ export class Player {
     this.pos = new THREE.Vector3(0, 0, 0);
     this.vel = new THREE.Vector3();
     this.yaw = 0;
-    this.hold = 0;            // -1/+1 when holding the companion's hand
     this.radius = 0.42;
     this.grounded = true;
     this.sitting = false;
@@ -213,7 +212,6 @@ export class Player {
       grounded: this.grounded,
       sitting: false,
       vy: this.vel.y,
-      hold: this.hold || 0,
     });
   }
 
