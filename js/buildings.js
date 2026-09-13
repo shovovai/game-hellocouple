@@ -15,23 +15,81 @@ import { makeRng } from './noise.js';
 
 const M = () => materials();
 
-/** Window pane + frame on a wall face. Facing: +Z by default. */
-function windowPane(w = 1.0, h = 1.2, x = 0, y = 1.4, z = 0, ry = 0) {
+/**
+ * Window on a wall face, facing +Z.
+ *
+ * The pane is pushed *into* the wall and surrounded by a frame that stands
+ * proud of it, so the opening reads as a hole with depth rather than a sticker.
+ * A projecting sill and a lintel above finish it; shutters are optional.
+ */
+function windowPane(w = 1.0, h = 1.2, x = 0, y = 1.4, z = 0, ry = 0, o = {}) {
   const m = M(), g = grp(x, y, z, ry);
-  g.add(B(m.windowLit, w, h, 0.06, 0, 0, 0));
-  g.add(B(m.white, w + 0.16, 0.09, 0.1, 0, h / 2 + 0.04, 0.01));
-  g.add(B(m.white, w + 0.16, 0.09, 0.1, 0, -h / 2 - 0.04, 0.01));
-  g.add(B(m.white, 0.09, h + 0.18, 0.1, -w / 2 - 0.04, 0, 0.01));
-  g.add(B(m.white, 0.09, h + 0.18, 0.1, w / 2 + 0.04, 0, 0.01));
-  g.add(B(m.white, 0.05, h, 0.08, 0, 0, 0.02));
+  const { shutters = false, sill = true, frame = m.white, muntins = true } = o;
+  const reveal = 0.1;
+  // glazing, recessed
+  g.add(B(m.windowLit, w, h, 0.05, 0, 0, -reveal));
+  // reveal sides, in shadow
+  g.add(B(frame, 0.05, h + 0.1, reveal, -w / 2 - 0.02, 0, -reveal / 2));
+  g.add(B(frame, 0.05, h + 0.1, reveal, w / 2 + 0.02, 0, -reveal / 2));
+  g.add(B(frame, w + 0.1, 0.05, reveal, 0, h / 2 + 0.02, -reveal / 2));
+  // frame, proud of the wall
+  g.add(B(frame, w + 0.14, 0.08, 0.07, 0, h / 2 + 0.03, 0.015));
+  g.add(B(frame, 0.08, h + 0.14, 0.07, -w / 2 - 0.03, 0, 0.015));
+  g.add(B(frame, 0.08, h + 0.14, 0.07, w / 2 + 0.03, 0, 0.015));
+  if (muntins) {
+    g.add(B(frame, 0.045, h, 0.05, 0, 0, -reveal + 0.04));
+    g.add(B(frame, w, 0.04, 0.05, 0, h * 0.12, -reveal + 0.04));
+  }
+  if (sill) {
+    // a sill that oversails the wall is the single clearest "real building" cue
+    g.add(B(m.stoneLight, w + 0.3, 0.07, 0.22, 0, -h / 2 - 0.06, 0.06));
+    g.add(B(m.stoneLight, w + 0.2, 0.05, 0.1, 0, -h / 2 - 0.12, 0.02));
+  }
+  if (shutters) {
+    for (const sx of [-1, 1]) {
+      const sh = B(shutters === true ? m.woodDark : shutters, w * 0.5, h * 0.98, 0.05,
+        sx * (w / 2 + w * 0.26 + 0.05), 0, 0.06);
+      g.add(sh);
+      for (let i = 0; i < 3; i++) {
+        g.add(B(m.dark, w * 0.44, 0.02, 0.02,
+          sx * (w / 2 + w * 0.26 + 0.05), -h * 0.3 + i * h * 0.3, 0.09));
+      }
+    }
+  }
   return g;
 }
 
 function doorPanel(w = 1.0, h = 2.1, mat = null) {
   const m = M(), g = grp();
-  g.add(B(mat || m.woodDark, w, h, 0.1, 0, h / 2, 0));
-  g.add(B(m.gold, 0.09, 0.09, 0.06, w / 2 - 0.16, h * 0.52, 0.07));
-  g.add(B(m.white, w + 0.2, 0.12, 0.14, 0, h + 0.06, 0.01));
+  const door = mat || m.woodDark;
+  // recessed leaf inside a proud casing
+  g.add(B(door, w, h, 0.08, 0, h / 2, -0.05));
+  for (const sy of [0.3, 0.68]) {
+    g.add(B(m.dark, w * 0.62, h * 0.28, 0.02, 0, h * sy, -0.008));
+  }
+  g.add(B(m.white, 0.09, h + 0.1, 0.12, -w / 2 - 0.045, h / 2, 0.02));
+  g.add(B(m.white, 0.09, h + 0.1, 0.12, w / 2 + 0.045, h / 2, 0.02));
+  g.add(B(m.white, w + 0.28, 0.12, 0.14, 0, h + 0.06, 0.02));
+  g.add(B(m.gold, 0.07, 0.07, 0.07, w / 2 - 0.16, h * 0.5, 0.0));
+  g.add(B(m.gold, 0.16, 0.04, 0.03, 0, h * 0.62, 0.0));          // letter slot
+  g.add(B(m.stoneLight, w + 0.5, 0.12, 0.5, 0, 0.06, 0.2));      // step
+  return g;
+}
+
+/** Fascia board, gutter and a downpipe — the trim that makes a roof land. */
+function eaves(w, d, y, mat, overhang = 0.35) {
+  const m = M(), g = grp();
+  for (const sz of [-1, 1]) {
+    g.add(B(mat, w + overhang * 2, 0.16, 0.09, 0, y, sz * (d / 2 + overhang)));
+    const gut = C(m.metalWhite, 0.055, w + overhang * 2, 0, y - 0.12, sz * (d / 2 + overhang + 0.02), 0.055, 8);
+    gut.rotation.z = Math.PI / 2;
+    g.add(gut);
+  }
+  for (const sx of [-1, 1]) {
+    const pipe = C(m.metalWhite, 0.045, y - 0.1, sx * (w / 2 + overhang - 0.12), (y - 0.1) / 2,
+      -(d / 2 + overhang - 0.02), 0.045, 8);
+    g.add(pipe);
+  }
   return g;
 }
 
@@ -42,7 +100,9 @@ function gableRoof(w, d, h, mat, overhang = 0.35) {
   const len = Math.hypot(h, d / 2 + overhang);
   for (const sz of [-1, 1]) {
     const s = B(mat, w + overhang * 2, 0.16, len * 2 * 0.5 + 0.1, 0, h / 2, sz * (d / 4 + overhang / 2));
-    s.rotation.x = -sz * slope;
+    // Rotating by +slope about X drops the far (+Z) edge, which is what makes a
+    // ridge rather than a valley — the sign here was inverted.
+    s.rotation.x = sz * slope;
     g.add(s);
   }
   return { group: g, ridge: h };
@@ -103,9 +163,9 @@ export function makeHouse(o = {}) {
   for (let i = 0; i < cols; i++) {
     const x = -w / 2 + (w / (cols + 1)) * (i + 1);
     if (Math.abs(x) > doorW * 0.9) {
-      g.add(windowPane(1.0, 1.2, x, wy, -d / 2 - 0.06));
+      g.add(windowPane(1.0, 1.2, x, wy, -d / 2 - 0.06, 0, { shutters: style !== 'modern' }));
     }
-    g.add(windowPane(1.0, 1.2, x, wy, d / 2 + 0.06, Math.PI));
+    g.add(windowPane(1.0, 1.2, x, wy, d / 2 + 0.06, Math.PI, { shutters: style !== 'modern' }));
   }
   const rows = Math.max(1, Math.floor(d / 2.8));
   for (let i = 0; i < rows; i++) {
@@ -132,11 +192,29 @@ export function makeHouse(o = {}) {
     g.add(r.group);
     g.add(gableEnd(w + 0.04, roofH, wall, d / 2 - 0.02));
     g.add(gableEnd(w + 0.04, roofH, wall, -d / 2 - 0.16, true));
+    // ridge cap, barge boards and the gutter line
+    const ridge = C(roofMat, 0.13, w + 0.75, 0, h + roofH + 0.03, 0, 0.13, 6);
+    ridge.rotation.z = Math.PI / 2;
+    g.add(ridge);
+    for (const sz of [-1, 1]) {
+      const barge = B(m.white, w + 0.8, 0.13, 0.1, 0, h + roofH / 2, sz * (d / 4 + 0.2));
+      barge.rotation.x = sz * Math.atan2(roofH, d / 2 + 0.35);
+      g.add(barge);
+    }
+    g.add(eaves(w, d, h + 0.02, m.white));
+  }
+  // corner boards give the walls an edge instead of a paper fold
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    g.add(B(m.white, 0.16, h - 0.3, 0.16, sx * (w / 2 - 0.02), (h - 0.3) / 2 + 0.2, sz * (d / 2 - 0.02)));
   }
 
   if (chimney) {
     g.add(B(m.brick, 0.7, roofH + 1.4, 0.7, w * 0.28, h + roofH * 0.4, d * 0.2));
-    g.add(B(m.stone, 0.85, 0.16, 0.85, w * 0.28, h + roofH * 0.4 + (roofH + 1.4) / 2, d * 0.2));
+    const cy = h + roofH * 0.4 + (roofH + 1.4) / 2;
+    g.add(B(m.stone, 0.85, 0.16, 0.85, w * 0.28, cy, d * 0.2));
+    for (const sx of [-1, 1]) {
+      g.add(C(m.stone, 0.12, 0.3, w * 0.28 + sx * 0.16, cy + 0.22, d * 0.2, 0.14, 8));
+    }
   }
 
   if (porch) {

@@ -80,6 +80,24 @@ export class MapSystem {
     }
     ctx.putImageData(img, 0, 0);
 
+    // downtown: block footprints first, then the street grid over them
+    const city = this.network.city;
+    if (city) {
+      ctx.fillStyle = 'rgba(120,124,130,0.92)';
+      for (const b of city.blocks) {
+        const p0 = this.toPx(b.x - b.w / 2, b.z - b.d / 2);
+        const p1 = this.toPx(b.x + b.w / 2, b.z + b.d / 2);
+        ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      }
+      ctx.fillStyle = 'rgba(176,180,186,0.85)';
+      for (const b of city.blocks) {
+        if (b.kind !== 'plaza') continue;
+        const p0 = this.toPx(b.x - b.w / 2, b.z - b.d / 2);
+        const p1 = this.toPx(b.x + b.w / 2, b.z + b.d / 2);
+        ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      }
+    }
+
     // roads and trails
     for (const road of this.network.roads) {
       ctx.beginPath();
@@ -87,8 +105,9 @@ export class MapSystem {
         const q = this.toPx(p[0], p[1]);
         i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y);
       });
-      ctx.strokeStyle = road.kind === 'road' ? 'rgba(238,230,214,0.92)' : 'rgba(206,180,140,0.75)';
-      ctx.lineWidth = road.kind === 'road' ? 3.4 : 2.0;
+      ctx.strokeStyle = road.city ? 'rgba(246,242,232,0.95)'
+        : road.kind === 'road' ? 'rgba(238,230,214,0.92)' : 'rgba(206,180,140,0.75)';
+      ctx.lineWidth = road.city ? 2.6 : road.kind === 'road' ? 3.4 : 2.0;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.stroke();
@@ -107,6 +126,9 @@ export class MapSystem {
   }
 
   /* ------------------------------------------------------------ draw */
+
+  /** Point the minimap arrow at a world position, or clear it with null. */
+  setWaypoint(t) { this.waypoint = t || null; }
 
   drawMinimap(canvas, player, companion, heading) {
     if (!this.built) return;
@@ -146,6 +168,30 @@ export class MapSystem {
       ctx.lineWidth = 1.6;
       ctx.strokeStyle = 'rgba(0,0,0,.45)';
       ctx.stroke();
+    }
+
+    // objective marker, and a line pointing at it when it is off the minimap
+    if (this.waypoint) {
+      const q = toLocal(this.waypoint.x, this.waypoint.z);
+      const inside = q.x > 8 && q.y > 8 && q.x < W - 8 && q.y < H - 8;
+      const a = Math.atan2(q.y - H / 2, q.x - W / 2);
+      const rx = inside ? q.x : W / 2 + Math.cos(a) * (W / 2 - 12);
+      const ry = inside ? q.y : H / 2 + Math.sin(a) * (H / 2 - 12);
+      ctx.save();
+      ctx.translate(rx, ry);
+      if (!inside) ctx.rotate(a + Math.PI / 2);
+      ctx.beginPath();
+      if (inside) {
+        ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      } else {
+        ctx.moveTo(0, -8); ctx.lineTo(6, 6); ctx.lineTo(-6, 6); ctx.closePath();
+      }
+      ctx.fillStyle = '#ffc94a';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(0,0,0,.5)';
+      ctx.stroke();
+      ctx.restore();
     }
 
     // companion

@@ -751,3 +751,90 @@ export function makeShellProp(kind = 0) {
 }
 
 export { UNIT };
+
+/**
+ * Helipad: a painted circle with an H, a lip and marker lights. Gives the
+ * helicopter somewhere obvious to sit and somewhere obvious to come back to.
+ */
+export function makeHelipad(r = 7) {
+  const m = M();
+  const g = grp();
+  const pad = C(m.asphalt, r, 0.16, 0, 0.08, 0, r, 28);
+  pad.receiveShadow = true;
+  g.add(pad);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.78, r * 0.86, 30), m.white);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.17;
+  g.add(ring);
+  // the H
+  for (const sx of [-1, 1]) g.add(B(m.white, 0.5, 0.03, r * 0.9, sx * r * 0.26, 0.17, 0));
+  g.add(B(m.white, r * 0.52, 0.03, 0.5, 0, 0.17, 0));
+  // kerb and lights
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(r, 0.1, 6, 30), m.metal);
+  lip.rotation.x = Math.PI / 2;
+  lip.position.y = 0.1;
+  g.add(lip);
+  const lampMat = new THREE.MeshStandardMaterial({
+    color: 0xffb4a0, emissive: 0xff5a3c, emissiveIntensity: 1.2, roughness: 0.4,
+  });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.add(C(lampMat, 0.12, 0.2, Math.cos(a) * r * 0.96, 0.2, Math.sin(a) * r * 0.96, 0.12, 6));
+  }
+  g.userData.cols = [];
+  g.userData.platform = { x: 0, z: 0, r, y: 0.16 };
+  return g;
+}
+
+/**
+ * Objective marker: the pillar of light a mission points you at.
+ *
+ * Deliberately readable from a long way off and through geometry — it renders
+ * with depth testing off so it shows through a hill, which is what makes it
+ * usable as navigation rather than decoration.
+ */
+export function makeWaypoint(color = 0xffc94a) {
+  const g = grp();
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.3, depthWrite: false, depthTest: false,
+    side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+  });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.9, 60, 14, 1, true), mat);
+  beam.position.y = 30;
+  beam.renderOrder = 999;
+  g.add(beam);
+
+  const ringMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.8, 2.4, 26), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.3;
+  ring.renderOrder = 1000;
+  g.add(ring);
+
+  g.userData.spin = ring;
+  g.userData.beam = beam;
+  g.userData.mats = [mat, ringMat];
+  g.userData.dynamic = true;
+  return g;
+}
+
+/** Checkpoint ring for a race — you drive, sail or fly through it. */
+export function makeCheckpoint(r = 6, color = 0x4ad2ff) {
+  const g = grp();
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.55, depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.34, 8, 30), mat);
+  ring.position.y = r * 0.85;
+  g.add(ring);
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.1, 26, 1, true), mat);
+  glow.position.y = r * 0.85;
+  g.add(glow);
+  g.userData.mats = [mat];
+  g.userData.dynamic = true;
+  return g;
+}

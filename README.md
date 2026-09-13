@@ -1,9 +1,14 @@
 # HelloCouple World
 
-A compact, hand-built 3D open-world island that runs in a browser tab. Explore a
-vacation island, find hidden places, collect things, complete quests, fish from
-the pier, share a café date, customise your character, and watch the sun go down
-from Sunset Point — with a companion who follows you everywhere.
+An open-world island city that runs in a browser tab. Drive through downtown
+traffic, park up and walk the sidewalks, then head out along the coast road to
+find hidden beaches, a waterfall, a lighthouse and a secret grove — with a
+companion who follows you everywhere.
+
+The island is about 1.2 km across. Downtown is a 25-block grid of towers,
+mid-rise and shopfronts with working signals, pedestrians and moving traffic;
+outside it are beaches, forest, a lake, a pier, a campsite and Sunset Point,
+joined by a ring road you can drive.
 
 Built with HTML5, CSS3, ES modules, WebGL and Three.js. No backend, no build
 step, no external assets, no tracking.
@@ -16,7 +21,8 @@ The game is plain static files, but it uses ES modules, so it must be served
 over HTTP (opening `index.html` from the filesystem will not work).
 
 ```bash
-cd hellocouple-world
+git clone https://github.com/shovovai/game-hellocouple.git
+cd game-hellocouple
 
 # any static server works — pick one
 python3 -m http.server 8080
@@ -32,12 +38,12 @@ There is nothing to install and nothing to build. Three.js is vendored at
 
 ## 2. Deploying
 
-Copy the `hellocouple-world/` folder anywhere that serves static files:
+Copy the repository contents anywhere that serves static files:
 
 | Host | How |
 | --- | --- |
 | Apache / Nginx | drop the folder in the web root |
-| Laravel / Symfony | drop it in `public/` → served at `/hellocouple-world/` |
+| Laravel / Symfony | drop it in `public/hellocouple-world/` → served at that path |
 | Netlify / Vercel / Cloudflare Pages | set the folder as the publish directory |
 | GitHub Pages | commit the folder, enable Pages |
 | S3 / any CDN | upload the folder, serve `index.html` as the index |
@@ -89,6 +95,10 @@ touches elements inside `#game-root`.
 | Input | Action |
 | --- | --- |
 | `W` `A` `S` `D` / arrow keys | Move |
+| `E` at a car | Get in and drive (`E` again to get out) |
+| `E` at a boat | Take her out; `E` near shore to step off |
+| `E` at a helipad | Fly — `Space` climbs, `Shift` descends, land to get out |
+| `E` at a noticeboard | Read what date is on offer and start it |
 | Mouse move (or drag) | Look around |
 | Mouse wheel | Zoom the camera in and out |
 | `Shift` | Sprint |
@@ -98,9 +108,15 @@ touches elements inside `#game-root`.
 | `J` or `Q` | Quests |
 | `I` | Inventory |
 | `C` | Emote wheel |
+| `H` | Hold your partner's hand (and let go) |
+| `V` (hold) | Push to talk — speak, and they answer out loud |
 | `P` | Photo mode |
 | `F` | Fullscreen |
 | `Esc` | Pause menu, or close whatever is open |
+
+While driving: `W`/`S` accelerate and reverse, `A`/`D` steer, `Space` brakes,
+`E` gets out. The camera pulls back as you gain speed and the speedometer
+appears bottom-right.
 
 In photo mode: `W`/`A`/`S`/`D` fly, `Space` rises, `Ctrl` descends, `Shift`
 flies faster, the wheel changes the field of view.
@@ -111,7 +127,9 @@ Touch controls appear automatically on touch devices:
 
 - **Left half** — virtual joystick (push it to the edge to sprint).
 - **Right half** — swipe to look, pinch to zoom.
-- **Buttons** — `E` interact, `⤒` jump, `⚡` sprint toggle, `▦` map, `☰` menu.
+- **Buttons** — `E` interact, `⤒` jump (brake while driving), `⚡` sprint
+  toggle, `⚭` hold hands, `🎙` hold to talk, `▦` map, `☰` menu, `⎋` get out of
+  the car.
 
 ## 5. Performance settings
 
@@ -121,32 +139,99 @@ touch capability); Low / Medium / High override it.
 | | Low | Medium | High |
 | --- | --- | --- | --- |
 | Pixel ratio cap | 1.0 | 1.35 | 2.0 |
-| Terrain mesh | 140² | 200² | 280² |
-| Shadows | off | 1024 px | 2048 px |
+| Terrain mesh | 192² | 288² | 416² |
+| Shadows | 1024 px | 2048 px | 3072 px |
+| Shadow distance | 130 m | 210 m | 280 m |
 | Tree density | 45 % | 75 % | 100 % |
 | Grass | off | 55 % | 100 % |
+| Traffic cars | 10 | 22 | 34 |
+| Pedestrians | 12 | 26 | 40 |
 | Water shader | cheap | normal | full |
-| Draw distance | 760 m | 1050 m | 1400 m |
+| Draw distance | 900 m | 1400 m | 2000 m |
 
 Independent of the preset, the game always:
 
-- merges static props into batches per material **and** per 110 m cell, so draw
+- merges static props into batches per material **and** per 190 m cell, so draw
   calls stay low without breaking frustum culling;
+- splits the terrain into 8×8 chunks so most of a 1.2 km island is culled
+  rather than drawn (normals come from the heightfield, so there are no seams);
+- draws all traffic with InstancedMesh grouped by car kind and material role —
+  a whole city of cars costs about twenty draw calls, and forty pedestrians
+  nine;
+- merges each character's ~70 primitives down to ~30 by joint and material, so
+  a dozen people on screen cost a few dozen draws rather than eight hundred;
 - draws all vegetation with `InstancedMesh`, bucketed the same way;
 - keeps a pool of 5–7 real point lights that are reassigned each frame to the
   nearest active light sources (the island defines ~130 of them);
 - caps the device pixel ratio, shadow map size and shadow distance;
-- generates every texture procedurally at 64–256 px instead of shipping 4K maps;
+- generates every texture procedurally at 64–256 px instead of shipping 4K maps
+  — including the normal maps that give brick, roof tiles, plaster, cloth, skin
+  and car paint real relief, which cost nothing to download;
 - hides distant NPCs and freezes off-screen wildlife instances.
+
+Measured on the shipped island: roughly 730 draw calls and 1.4 M triangles at
+Medium, and 1 400 / 3.3 M at High with the full draw distance. Auto-detect picks
+Medium on a typical laptop and Low on phones.
 
 Physics resolution is deliberately **independent of graphics quality**: the
 collision heightfield is always baked at 300², so the world feels identical on a
 phone and on a desktop.
 
+### It tunes itself
+
+Guessing a quality level from `navigator.hardwareConcurrency` and
+`navigator.deviceMemory` is unreliable — Safari does not report memory at all,
+and a laptop with eight cores can still be driving integrated graphics. So the
+guess only picks a starting point and `perf.js` corrects it from the one number
+that matters: measured frame time.
+
+The governor watches a rolling window of frame times and moves between four
+**runtime tiers** (Minimum, Low, Medium, High) that scale resolution, shadows,
+view distance, crowd size and rain density. A sustained median above 26 ms
+steps down; above 55 ms drops two tiers at once; a long clean run below 11.5 ms
+steps back up. It only decides from at least twenty samples, so a device running
+at five frames a second is corrected in about two seconds rather than twelve.
+Single long frames over 500 ms are ignored — those are hitches, not a trend.
+
+Tiers only touch what can change mid-session. Anything that would mean
+rebuilding the world — terrain resolution, tree density — stays fixed at the
+preset chosen when the island was built. Picking a quality by hand in Settings
+pins the tier and the governor stops moving it; **Auto** hands it back.
+
+Shadow maps are redrawn every second, third or fourth frame on the lower tiers
+(`renderer.shadowMap.autoUpdate = false` plus a counter) because the sun barely
+moves between frames, and the environment probe refreshes every four seconds
+rather than every 1.5.
+
+### It remembers the island
+
+The island is a pure function of its seed, and on a cold load most of the wait is
+spent proving that: baking a 561 × 561 heightfield, and testing tens of thousands
+of candidate tree positions against slope, path distance and physics — most of
+which are rejected.
+
+`cache.js` stores both results in IndexedDB, keyed by a hash of everything that
+shapes the island, so an edit to a location or a road invalidates them
+automatically. Vegetation is cached as a **recording of the placements that
+survived** rather than as geometry: the replay skips the search entirely and
+rebuilds the same trees from the same decisions.
+
+Measured on the same machine, world build time:
+
+| | Cold | Warm |
+| --- | --- | --- |
+| Heightfield | 2 900 ms | 500 ms |
+| Whole build | 4 860 ms | 2 210 ms |
+
+Everything degrades silently — private browsing, a full disk, no IndexedDB, or a
+cache written by an older build all just mean a normal cold generation. Turn it
+off or wipe it from **Settings → Graphics → Fast loading**, and bump
+`CACHE_VERSION` in `cache.js` when a change makes old entries wrong.
+
 ## 6. Project structure
 
 ```
-hellocouple-world/
+game-hellocouple/
 ├── index.html              markup for every UI surface
 ├── css/style.css           the complete UI stylesheet
 ├── vendor/three/           vendored Three.js (MIT) + its licence
@@ -166,6 +251,11 @@ hellocouple-world/
     ├── vegetation.js       instanced trees, bushes, grass, flowers, rocks
     ├── water.js            ocean, lake, rivers, waterfall
     ├── world.js            assembles the island and every location
+    ├── city.js             downtown: streets, blocks, towers, furniture
+    ├── vehicle.js          car models and arcade driving physics
+    ├── craft.js            speedboat and helicopter
+    ├── missions.js         authored dates, time trials, objective chains
+    ├── traffic.js          instanced AI traffic and pedestrians
     ├── daynight.js         sky, sun, moon, stars, the whole lighting rig
     ├── weather.js          sunny / cloudy / rain
     ├── character.js        procedural humanoid + blended animation
@@ -184,13 +274,53 @@ hellocouple-world/
     ├── map.js              minimap, full map, fast travel
     ├── save.js             persistence behind a storage adapter
     ├── ui.js               every DOM surface
-    └── net.js              the multiplayer seam (inert in v1)
+    ├── voice.js            push-to-talk companion voice + WebRTC voice chat
+    ├── perf.js             frame-rate governor + runtime quality tiers
+    ├── cache.js            IndexedDB cache for the generated island
+    └── net.js              the multiplayer seam
+```
+
+The game is still a pure static site. The one optional extra is the signalling
+server, which exists only so two browsers can find each other for voice chat:
+
+```
+└── server/
+    ├── index.js            WebSocket signalling relay (no DB, no accounts)
+    └── package.json        one dependency: ws
 ```
 
 ## 7. Adding content
 
 Almost everything is data in `js/config.js`. The world generator reads it, so
 new content needs no engine changes.
+
+### Adding a city block
+
+Downtown is generated from `buildCity()` in `layout.js`, which returns block
+rectangles, street centre-lines and intersections. Change `COLS`, `ROWS`,
+`BLOCK`, `AVENUE` and `STREET` there to resize the grid — the terrain plateau,
+the road network, the traffic graph and the map all follow automatically.
+
+Each block carries a `kind` (`plaza`, `tower`, `midrise`, `low`, `reserved`),
+and `city.js` has one builder per kind. To add a district type, add a kind in
+`buildCity()` and a branch in `buildBlock()`.
+
+Facades are shared materials built from `facadeTexture()` and
+`facadeLitTexture()` in `textures.js`; add an entry to `facadeSpecs` in
+`materials.js` and every block can use it. The emissive map is what lights the
+windows after dark.
+
+### Adding a car
+
+```js
+// vehicle.js → CAR_KINDS
+coupe: { w: 1.84, l: 4.2, h: 0.52, cabin: 0.5, nose: 1.1,
+         maxSpeed: 36, accel: 15, grip: 1.1, mass: 0.95, spoiler: true },
+```
+
+That is enough for it to appear parked downtown, in traffic, and in the row of
+drivable cars by the plaza. `makeCarModel()` reads the proportions; `Vehicle`
+reads the handling numbers. Optional flags: `boxy`, `bed`, `spoiler`, `taxi`.
 
 ### Adding a location
 
@@ -256,6 +386,16 @@ Scatter it from the world with `this.drop('feather', x, z)`. It is counted,
 saved, shown in the Collection and Inventory screens, and usable as a quest
 trigger automatically.
 
+### Adding an outfit
+
+`character.js` builds clothes over the base body in `_buildOutfit()`, hung off
+the `chest` and `hips` joints so they animate for free. A look carries two
+fields: `outfit` (`tee` `shirt` `jacket` `hoodie` `coat` `dress`) and `bottom`
+(`trousers` `shorts` `skirt`), and `bottom` also decides how much leg is bare.
+Add a branch there, then list the name in `CUSTOMIZE.outfits` in `config.js` and
+it appears in **Customize**. Changing `outfit`, `bottom` or `height` re-runs
+`_build()` (`setLook` detects it) because those change geometry, not colour.
+
 ### Adding a character or NPC
 
 Every character — player, companion, NPC, future remote player — is the same
@@ -266,8 +406,9 @@ world builder:
 this.npcSpawns.push({
   id:'ranger', name:'Bo', role:'walk',      // 'stand' | 'sit' | 'walk' | 'fish'
   x, z, wander: 14,
-  look: { skin:'#c98e64', hair:'#5b3a26', hairStyle:'short',
-          shirt:'#6fbf73', pants:'#3c5a80', shoes:'#23262e' },
+  look: { skin:'#c98e64', hair:'#5b3a26', hairStyle:'short',   // short|long|bun|ponytail
+          shirt:'#6fbf73', pants:'#3c5a80', shoes:'#23262e',
+          eyes:'#4a3324', height: 1.0 },
   lines: [
     ['The path north is steeper than it looks.', ['Good to know', 'Where should I go?']],
     ['Follow the ridge and you will find the campsite.', ['Thanks!']],
@@ -278,6 +419,30 @@ this.npcSpawns.push({
 `NPCSystem.build()` creates the character, the wander behaviour and the "Talk
 to Bo" prompt. Dialogue lines are `[text, [choice, ...]]`; the last line ends the
 conversation.
+
+**How the body is built.** `character.js` assembles a real joint hierarchy
+(hips → spine → chest → neck → head, plus four limb chains) out of capsules and
+spheres: shoulders, elbows, knees and ankles all carry a joint ball so the limbs
+never separate from the body, hands have a palm and a thumb, shoes have a sole,
+and the head carries a jaw, brow, nose, lips, ears, eyebrows and eyes with lids
+that blink. Skin, knit, denim, leather and hair each get a tiling greyscale
+detail map **and** a matching normal map generated in `textures.js`
+(`surfaceDetail` / `surfaceNormal`), so cloth reacts to the moving sun instead of
+reading as a flat block of colour. The maps are greyscale and shared by every
+character in the world — only `material.color` changes per person, so a crowd
+costs one set of textures.
+
+Those ~70 primitives would be ~70 draw calls each, so after building, `_flush()`
+merges the meshes that hang off the same joint and share a material into one
+geometry, cached globally because every character has the identical layout. A
+character costs roughly 30 draws instead of 70, and the merged pieces are marked
+`userData.shared` so teardown leaves them alone. Anything that must animate on
+its own — the eyelids — sets `userData.noMerge = true` and is skipped.
+
+Pedestrians (`traffic.js`) use the same detail and normal maps but are drawn as
+nine `InstancedMesh` parts (torso, hips, shoulders, head, hair, arms, sleeves,
+legs, shoes) with per-instance colour, height and hair length, so a crowd of 40
+costs nine draw calls in total rather than one rig each.
 
 To add a new animation, add a pose function to `character.js` (a map of joint →
 `[x, y, z]` rotations) and blend it in `Character.update()`; the damping there is
@@ -341,6 +506,13 @@ Version 1 is genuinely single-player — nothing is faked. The seam is `net.js`:
    `connect`, `disconnect`, `send`, `onPeer`, `onPeerLeft`, `connected`.
 3. Pass it to `RemotePlayers` instead of `NullNetwork` in `main.js`.
 
+`voice.js` already ships one: `VoiceChat` is a working WebRTC adapter with
+`connect`, `disconnect`, `send`, `onPeer`, `onPeerLeft` and `connected`, and
+`main.js` installs it whenever `VOICE.serverUrl` is set. Joining a voice room
+therefore already syncs the other player's character. What is *not* replicated
+yet is world state — collectibles, quest progress, weather and time of day are
+still per client.
+
 `RemotePlayers` already spawns a `Character` for each remote id it hears about,
 interpolates position and yaw, replays emotes, and sends a compact local
 snapshot ten times a second. A "couple room" is then a room id shared between
@@ -351,7 +523,214 @@ Collectibles and quests should stay client-authoritative for a cosmetic,
 non-competitive game like this one — there is nothing to cheat for — which keeps
 the server to a relay.
 
-## 11. Assets and licences
+## 11. Getting around
+
+Four ways to travel, all entered the same way: walk up and press `E`.
+
+**Cars** are parked downtown and at every major location, so you are never
+stranded. **Boats** are moored in deep water off the pier and the three beaches;
+the prompt sits on the shore side so you can reach it from dry land, and you can
+only step off again where there is ground to step onto. **Helicopters** sit on
+marked pads at the town, the viewpoint and the lighthouse.
+
+Flying is deliberately forgiving: the rotor spools up over about two seconds,
+and once it is up to speed it exactly cancels gravity, so hands off is a hover
+and the collective is the only thing that climbs or descends. There is no
+autorotation and no stall — let go of everything and it settles. You cannot get
+out in mid-air.
+
+Your partner comes with you in all three: `_seatRiders()` rotates the seats
+declared in the model into the world every frame, so you can see each other
+through the glass.
+
+### Adding a vehicle
+
+Cars live in `vehicle.js`, boats and helicopters in `craft.js`. All three are
+built from the same swept-body machinery — a profile of rings along the length,
+each a rounded cross-section — so a new hull is a new list of rings, not a new
+renderer. Spawn it from `World.buildCraft()` (or `buildDrivableCars()`), give it
+an `interact({ kind })`, and handle that kind in `_tryInteract()`.
+
+## 12. Houses you can walk into
+
+Every house in the town can be entered, not just the cottage. `buildHouses()`
+gives each one an interior id, a layout and a palette; `_furnishHome()` builds
+the room from three layouts — a loft is one open space, a family house has a
+proper sitting room, a studio is small and dense — across five palettes. Each
+has a sofa you can sit on together, windows onto the outside, and something to
+find.
+
+Interiors are real rooms placed far outside the island at `INTERIOR_ORIGIN`,
+which is why `player.interior` exists: it skips the world-boundary clamp, the
+wading check and the terrain lookup while you are inside one.
+
+## 13. Missions
+
+A quest is a passive counter: do the thing anywhere, any time, and it ticks. A
+**mission** is different, and it is what makes a world feel authored rather than
+scattered — an ordered chain of objectives you start deliberately, that tells you
+where to go while it runs, that can be left and picked up again, and that pays
+out once at the end. `missions.js` adds that; `quests.js` is untouched and still
+ticks away underneath.
+
+Here they are dates. Noticeboards stand at the town, the beach, the pier and the
+viewpoint with a marker over them. Walk up, press `E`, and a brief tells you what
+you are being asked to do and what it pays before you commit.
+
+### How one is written
+
+```js
+{
+  id: 'goldenHour',
+  name: 'Golden Hour',
+  after: 'firstDate',                       // prerequisite
+  giver: { loc: 'beach', name: 'Kes' },
+  brief: 'Kes swears the light off the west point at sunset is worth the climb.',
+  steps: [
+    { type: 'collect', kind: 'flower', count: 5, label: 'Pick 5 flowers along the way' },
+    { type: 'arrive',  at: 'viewpoint',        label: 'Climb to Sunset Point' },
+    { type: 'wait',    at: 'viewpoint', radius: 34, hour: 18.2, label: 'Wait there until sunset' },
+    { type: 'act',     activity: 'sunset',     label: 'Watch the sunset together' },
+    { type: 'photo',   at: 'viewpoint', radius: 34, label: 'Photograph the two of you' },
+  ],
+  reward: { coins: 240, hearts: 180, xp: 200 },
+  unlock: 'outfit:dress',
+}
+```
+
+Ten step types cover everything currently shipped:
+
+| `type` | completes when |
+| --- | --- |
+| `reach` | you are within `radius` of `at` — add `needs: 'car' \| 'boat' \| 'heli'` to require a vehicle, `minAlt` to require altitude |
+| `arrive` | you discover or enter the named location |
+| `photo` | you take a photo inside `radius` of `at` |
+| `collect` | you pick up `count` of a collectible `kind` |
+| `act` | an activity fires (`fish`, `drink`, `campfire`, `sunset`, …), `count` times |
+| `hold` | you hold hands for `seconds`, optionally at `arriveAt` |
+| `emote` | you play a named emote |
+| `talk` | you speak to a named NPC |
+| `wait` | you stay near `at` until the clock passes `hour` |
+| `race` | you pass every checkpoint under par |
+
+### How it is wired
+
+Rather than sprinkle `notify()` calls through a dozen files, `_wireProgressEvents()`
+wraps the single funnel the game already had — `quests.fire()` — and forwards
+every trigger to the mission system as well. A new step type usually needs no new
+plumbing at all, because the event it waits for is already being fired somewhere.
+
+While a mission runs, a pillar of light stands on the objective (drawn with
+`depthTest: false`, so it shows through a hill and is usable as navigation), the
+minimap grows an arrow that pins to the rim when the target is off-screen, and
+the objective panel replaces the quest tracker — two trackers stacked is how a
+HUD stops being read.
+
+### Time trials
+
+`RACES` in the same file: a start, a list of checkpoints, a par time and a
+vehicle. Get into the right vehicle, start it from **Dates**, and drive, sail or
+fly through each ring; the ring moves to the next gate as you pass it and turns
+red when you go over par. Getting out ends the run. Best times are saved per
+race.
+
+### Adding one
+
+Add an object to `MISSIONS` (or `RACES`) and it appears in the **Dates** tab and
+on its giver's board — there is nothing else to register. Use an existing
+`activity:` trigger for an `act` step, or fire a new one where the thing happens.
+
+## 14. Being a couple
+
+Three things in the game are about the two of you rather than the island.
+
+### Holding hands
+
+Press `H` (or `⚭` on touch) when you are near each other. The companion stops
+trailing behind and walks at your shoulder, and one arm on each of you is pinned
+so the hands meet and swing together. Anything that changes posture lets go on
+its own: sitting, getting in a car, swimming, jumping, or drifting more than
+5.5 m apart. It counts toward the **Hand in Hand** quest.
+
+The follow AI is in `companion.js`: `holdSpot()` returns a point beside you
+rather than behind you, and while holding the companion steers straight at it
+with a speed that tracks yours, because the usual obstacle-avoidance fan would
+visibly stretch the pair apart. The arm pose is in `character.js` — `state.hold`
+is `-1` or `+1` and replaces the locomotion swing on that one arm.
+
+### Driving together
+
+Get into any car and your partner gets in beside you. `makeCarModel()` declares
+`userData.seats` in car space; `_seatRiders()` in `main.js` rotates those into
+the world every frame and puts both characters into the seated pose, so you can
+see each other through the glass as you drive. Completes **Two Seater**.
+
+### Talking out loud
+
+Two independent systems, both in `voice.js`.
+
+**Push to talk with your companion — no server, works offline.** Hold `V` (or
+`🎙`), say something, let go. The browser's `SpeechRecognition` transcribes it,
+`voice.js` matches it against the `REPLIES` table, and the answer is spoken back
+through `speechSynthesis`. Some lines also *do* something: "hold my hand" takes
+your hand, "let's take a photo" opens photo mode, "dance" makes you both dance.
+The companion can answer questions about where you are, the time, the weather
+and your current quest — `_voiceContext()` in `main.js` decides what it knows.
+
+Add a line by adding one entry to `REPLIES`:
+
+```js
+[/\b(sing|song)\b/, (c) => `Not in front of everyone in ${c.area}.`],
+```
+
+Return `{ say, act }` instead of a string to trigger behaviour, and handle the
+new `act` in `_voiceAct()`.
+
+Speech recognition needs Chrome, Edge or Safari; Firefox has no
+`SpeechRecognition` and the game says so rather than failing. Speech *synthesis*
+works everywhere. Pick which voice answers in **Voice** → *Their voice*.
+
+**Live voice chat with a real person — needs the server.** Open the **Voice**
+tab, type the same room code as your partner, press *Join room*. After the
+handshake the microphone audio is peer-to-peer WebRTC; each voice is played
+through a `PannerNode` positioned at that player's character, so someone across
+the plaza sounds like they are across the plaza.
+
+This is the only part of the game that needs a server, and all the server does is
+introduce the two browsers to each other:
+
+```bash
+cd server
+npm install
+npm start          # listens on :8080, or $PORT
+```
+
+Then point the game at it:
+
+```js
+// js/config.js
+export const VOICE = {
+  serverUrl: 'wss://voice.example.com',   // ws:// for local testing
+  pushToTalkKey: 'V',
+};
+```
+
+Leave `serverUrl` empty and live voice chat reports itself unavailable; push to
+talk with your companion still works, because that never leaves the browser.
+
+The server keeps no accounts, no database and no history — only which socket is
+in which room, in memory. Set `ALLOWED_ORIGINS` in production (comma separated)
+so only your own site can open a socket; `MAX_ROOM` caps a room (default 8).
+It exposes `GET /health` for a platform health check. Deploy it anywhere that
+runs Node 18+ and supports WebSockets — Railway, Render, Fly.io, or a VPS
+behind nginx. Serve the game itself over HTTPS: browsers only grant microphone
+access on a secure origin.
+
+`VoiceChat` implements the same `NetworkAdapter` interface as `NullNetwork`, so
+`RemotePlayers` drives it unchanged — joining a room already syncs position, yaw
+and emotes over the WebRTC data channel alongside the audio. See §10.
+
+## 15. Assets and licences
 
 - **Three.js** — MIT, vendored at `vendor/three/three.module.min.js` with its
   licence file alongside.
@@ -364,7 +743,7 @@ There are no third-party models, textures, fonts or audio files, so there is
 nothing to attribute beyond Three.js and nothing that can break from an expired
 CDN link. The UI uses the system font stack.
 
-## 12. Browser support
+## 16. Browser support
 
 Requires WebGL2 (Chrome/Edge 79+, Firefox 51+, Safari 15+, and their mobile
 equivalents). If WebGL is unavailable the game shows a clear message instead of

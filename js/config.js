@@ -17,9 +17,9 @@ export const GAME = {
 
 export const WORLD = {
   /** Nominal island radius in metres; the coastline wobbles around it. */
-  shoreRadius: 268,
+  shoreRadius: 560,
   /** Half-size of the terrain mesh (a square that comfortably contains the isle). */
-  halfSize: 340,
+  halfSize: 700,
   /** Ocean plane size. */
   oceanSize: 6000,
   /** Sea level (world Y). Everything below is underwater. */
@@ -29,7 +29,7 @@ export const WORLD = {
   /** Player cannot swim: this is the wading limit before being pushed back. */
   wadeDepth: -1.1,
   /** Soft boundary — beyond this the player is turned around. */
-  boundary: 330,
+  boundary: 680,
   gravity: -24,
 };
 
@@ -39,10 +39,10 @@ export const QUALITY_PRESETS = {
   low: {
     label: 'Low',
     pixelRatio: 1.0,
-    terrainSegments: 140,
+    terrainSegments: 192,
     shadows: false,
     shadowMapSize: 1024,
-    shadowDistance: 70,
+    shadowDistance: 130,
     treeDensity: 0.45,
     gograssDensity: 0,
     grassDensity: 0.0,
@@ -50,43 +50,49 @@ export const QUALITY_PRESETS = {
     waterQuality: 0,
     fogDensity: 1.25,
     particles: 0.4,
-    drawDistance: 760,
+    drawDistance: 900,
     anisotropy: 1,
     antialias: false,
+    traffic: 10,
+    pedestrians: 12,
   },
   medium: {
     label: 'Medium',
     pixelRatio: 1.35,
-    terrainSegments: 200,
+    terrainSegments: 288,
     shadows: true,
-    shadowMapSize: 1024,
-    shadowDistance: 122,
+    shadowMapSize: 2048,
+    shadowDistance: 210,
     treeDensity: 0.75,
     grassDensity: 0.55,
     detailDensity: 0.8,
     waterQuality: 1,
     fogDensity: 1.0,
     particles: 0.75,
-    drawDistance: 1050,
+    drawDistance: 1400,
     anisotropy: 4,
     antialias: true,
+    traffic: 22,
+    pedestrians: 26,
   },
   high: {
     label: 'High',
     pixelRatio: 2.0,
-    terrainSegments: 280,
+    terrainSegments: 416,
     shadows: true,
-    shadowMapSize: 2048,
-    shadowDistance: 150,
+    shadowMapSize: 3072,
+    shadowDistance: 280,
     treeDensity: 1.0,
     grassDensity: 1.0,
     detailDensity: 1.0,
     waterQuality: 2,
     fogDensity: 1.0,
     particles: 1.0,
-    drawDistance: 1400,
+    drawDistance: 2000,
     anisotropy: 8,
     antialias: true,
+    traffic: 34,
+    pedestrians: 40,
   },
 };
 
@@ -100,38 +106,38 @@ export const QUALITY_PRESETS = {
  * `offset` pushes a shore location inland (+) or out to sea (-).
  */
 export const LOCATIONS = [
-  { id:'town',        name:'Central Town',        title:'CENTRAL TOWN',      sub:'Where every journey starts.',
-    anchor:[0,34],      kind:'inland', color:'#ffd6a5', icon:'⌂', radius:46, fastTravel:true },
+  { id:'town',        name:'Downtown',            title:'DOWNTOWN',          sub:'Glass, traffic and coffee.',
+    anchor:[70,0],      kind:'inland', color:'#ffd6a5', icon:'⌂', radius:105, fastTravel:true },
   { id:'cafe',        name:'HelloCouple Café',    title:'HELLOCOUPLE CAFÉ',  sub:'Two cups, one window seat.',
-    anchor:[-30,2],     kind:'inland', color:'#ff7a9c', icon:'☕', radius:16, fastTravel:true },
+    anchor:[120,60],     kind:'inland', color:'#ff7a9c', icon:'☕', radius:72, fastTravel:true },
   { id:'park',        name:'Seaside Park',        title:'SEASIDE PARK',      sub:'Green, quiet, and yours.',
-    anchor:[92,78],     kind:'inland', color:'#9fe08a', icon:'❦', radius:44, fastTravel:true },
+    anchor:[440,380],     kind:'inland', color:'#9fe08a', icon:'❦', radius:95, fastTravel:true },
   { id:'picnic',      name:'Picnic Meadow',       title:'PICNIC MEADOW',     sub:'Spread the blanket.',
-    anchor:[118,100],   kind:'inland', color:'#ffe08a', icon:'🧺', radius:20, fastTravel:false },
+    anchor:[500,330],   kind:'inland', color:'#ffe08a', icon:'🧺', radius:42, fastTravel:false },
   { id:'beach',       name:'Beach',               title:'BEACH',             sub:'Relax by the ocean.',
-    anchor:[26,210],    kind:'shore',  offset:16, color:'#ffe9b0', icon:'≈', radius:52, fastTravel:true },
+    anchor:[60,520],    kind:'shore',  offset:16, color:'#ffe9b0', icon:'≈', radius:110, fastTravel:true },
   { id:'sunsetBeach', name:'Sunset Beach',        title:'SUNSET BEACH',      sub:'The sky puts on a show.',
-    anchor:[-150,158],  kind:'shore',  offset:16, color:'#ffb38a', icon:'☀', radius:44, fastTravel:true },
+    anchor:[-380,380],  kind:'shore',  offset:16, color:'#ffb38a', icon:'☀', radius:95, fastTravel:true },
   { id:'viewpoint',   name:'Sunset Point',        title:'SUNSET POINT',      sub:'The whole ocean, just for you.',
-    anchor:[-206,26],   kind:'peak',   color:'#ffc978', icon:'▲', radius:30, fastTravel:true },
+    anchor:[-470,60],   kind:'peak',   color:'#ffc978', icon:'▲', radius:130, fastTravel:true },
   { id:'forest',      name:'Whispering Forest',   title:'WHISPERING FOREST', sub:'Listen to the leaves.',
-    anchor:[-58,-152],  kind:'inland', color:'#6fbf73', icon:'♣', radius:64, fastTravel:true },
+    anchor:[-150,-360],  kind:'inland', color:'#6fbf73', icon:'♣', radius:130, fastTravel:true },
   { id:'lake',        name:'Mirror Lake',         title:'MIRROR LAKE',       sub:'Still water, slow evening.',
-    anchor:[-100,-70],  kind:'inland', color:'#7fd8d2', icon:'◊', radius:52, fastTravel:true },
+    anchor:[-209,-146],  kind:'inland', color:'#7fd8d2', icon:'◊', radius:110, fastTravel:true },
   { id:'waterfall',   name:'Hidden Waterfall',    title:'HIDDEN WATERFALL',  sub:'You found the sound of water.',
-    anchor:[-150,-122], kind:'inland', color:'#9ad9ff', icon:'✦', radius:26, fastTravel:true, secret:true },
+    anchor:[-330,-270], kind:'inland', color:'#9ad9ff', icon:'✦', radius:56, fastTravel:true, secret:true },
   { id:'cave',        name:'Crystal Cave',        title:'CRYSTAL CAVE',      sub:'Something glitters in the dark.',
-    anchor:[-168,-138], kind:'inland', color:'#c9a7ff', icon:'◆', radius:15, fastTravel:false, secret:true },
+    anchor:[-350,-290], kind:'inland', color:'#c9a7ff', icon:'◆', radius:68, fastTravel:false, secret:true },
   { id:'lighthouse',  name:'Lighthouse',          title:'LIGHTHOUSE',        sub:'A light for the way home.',
-    anchor:[228,-72],   kind:'shore',  offset:22, color:'#ff9f9f', icon:'⌖', radius:34, fastTravel:true },
+    anchor:[470,-150],   kind:'shore',  offset:22, color:'#ff9f9f', icon:'⌖', radius:72, fastTravel:true },
   { id:'pier',        name:'The Pier',            title:'THE PIER',          sub:'Boats, fish and salt air.',
-    anchor:[132,182],   kind:'shore',  offset:6,  color:'#c6a27a', icon:'⚓', radius:40, fastTravel:true },
+    anchor:[300,430],   kind:'shore',  offset:6,  color:'#c6a27a', icon:'⚓', radius:85, fastTravel:true },
   { id:'campsite',    name:'Campsite',            title:'CAMPSITE',          sub:'Stay until the stars come out.',
-    anchor:[150,-104],  kind:'inland', color:'#ffb27a', icon:'▲', radius:32, fastTravel:true },
+    anchor:[360,-230],  kind:'inland', color:'#ffb27a', icon:'▲', radius:68, fastTravel:true },
   { id:'hiddenBeach', name:'Hidden Cove',         title:'HIDDEN COVE',       sub:'Nobody else knows about this one.',
-    anchor:[-214,-166], kind:'shore',  offset:4,  color:'#bff0ff', icon:'≈', radius:30, fastTravel:true, secret:true },
+    anchor:[-470,-350], kind:'shore',  offset:4,  color:'#bff0ff', icon:'≈', radius:130, fastTravel:true, secret:true },
   { id:'grove',       name:'Secret Grove',        title:'SECRET GROVE',      sub:'The forest kept a garden.',
-    anchor:[-142,-186], kind:'inland', color:'#ffc2e2', icon:'❀', radius:22, fastTravel:true, secret:true },
+    anchor:[-300,-420], kind:'inland', color:'#ffc2e2', icon:'❀', radius:48, fastTravel:true, secret:true },
 ];
 
 /* ---------------------------------------------------------- collectibles */
@@ -180,8 +186,26 @@ export const QUESTS = [
     trigger:'collectAny', target:10, reward:{coins:100, xp:50} },
   { id:'photographer', name:'Photographer', desc:'Take a photo of the island.',
     trigger:'activity:photo', target:1, reward:{coins:40, xp:25} },
+  { id:'roadTrip', name:'Road Trip', desc:'Find a car downtown and take it for a drive.',
+    trigger:'activity:drive', target:1, reward:{coins:60, hearts:20, xp:40} },
   { id:'campfireNight', name:'Campfire Night', desc:'Sit by the campfire at the campsite.',
     trigger:'activity:campfire', target:1, reward:{hearts:30, xp:35} },
+  { id:'handInHand', name:'Hand in Hand', desc:'Take your partner by the hand and walk together (press H).',
+    trigger:'activity:holdHands', target:1, reward:{hearts:40, xp:30} },
+  { id:'twoSeater', name:'Two Seater', desc:'Go for a drive together with your partner in the car.',
+    trigger:'activity:coupleDrive', target:1, reward:{coins:80, hearts:45, xp:55} },
+  { id:'saySomething', name:'Say Something', desc:'Speak to your partner out loud using the microphone (press V).',
+    trigger:'activity:voice', target:1, reward:{hearts:35, xp:40} },
+  { id:'setSail', name:'Set Sail', desc:'Take a boat out on the water.',
+    trigger:'activity:boat', target:1, reward:{coins:70, hearts:30, xp:45} },
+  { id:'takeOff', name:'Take Off', desc:'Fly the helicopter from one of the pads.',
+    trigger:'activity:fly', target:1, reward:{coins:120, hearts:40, xp:80} },
+  { id:'firstDateQuest', name:'Something Planned', desc:'Find a noticeboard and take your partner on a date.',
+    trigger:'activity:date', target:1, reward:{coins:100, hearts:60, xp:80} },
+  { id:'threeDates', name:'Making a Habit', desc:'Finish three dates together.',
+    trigger:'activity:date', target:3, after:'firstDateQuest', reward:{coins:300, hearts:250, xp:260} },
+  { id:'podiumFinish', name:'Under Par', desc:'Win any time trial.',
+    trigger:'activity:race', target:1, reward:{coins:180, hearts:40, xp:150} },
   { id:'starGatherer', name:'Star Gatherer', desc:'Find 3 hidden stars around the island.',
     trigger:'collect:star', target:3, reward:{coins:250, hearts:100, xp:150} },
 ];
@@ -232,7 +256,26 @@ export const CUSTOMIZE = {
   shirt: ['#ff7a9c', '#4f9fd8', '#f0e6d2', '#6fbf73', '#ff8b6b', '#2b2f38'],
   pants: ['#3c5a80', '#bda37a', '#2b2f38', '#6b6f7a'],
   shoes: ['#f2f2f2', '#8a5a34', '#23262e', '#d8534f'],
-  styles:['short', 'long', 'bun'],
+  eyes:  ['#4a3324', '#2f2620', '#3f6b4f', '#3d6c93', '#7a5230'],
+  styles:['short', 'long', 'bun', 'ponytail'],
+  outfits:['tee', 'shirt', 'jacket', 'hoodie', 'coat', 'dress'],
+  bottoms:['trousers', 'shorts', 'skirt'],
+};
+
+/* ------------------------------------------------------------------ voice */
+
+/**
+ * Voice settings.
+ *
+ * `serverUrl` is the only thing this game ever needs a server for. Point it at
+ * the signalling server in `server/` (`wss://...` in production, `ws://` for
+ * local testing) and the in-game Voice tab can join a room. Leave it empty and
+ * live voice chat is simply reported as unavailable — push-to-talk with your
+ * companion still works, because that runs entirely in the browser.
+ */
+export const VOICE = {
+  serverUrl: '',            // e.g. 'wss://voice.example.com'
+  pushToTalkKey: 'V',
 };
 
 /* --------------------------------------------------------------- leveling */
@@ -275,6 +318,11 @@ export const CONTROLS = [
   ['M', 'Map'],
   ['P', 'Photo mode'],
   ['C', 'Emotes'],
+  ['E at a car', 'Drive'],
+  ['H', 'Hold hands'],
+  ['E at a boat', 'Sail'],
+  ['E at a helipad', 'Fly — Space up, Shift down'],
+  ['E at a noticeboard', 'Start a date'],
   ['Esc', 'Menu'],
 ];
 

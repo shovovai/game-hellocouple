@@ -180,8 +180,11 @@ export class DayNight {
     this.sun.shadow.camera.right = sd;
     this.sun.shadow.camera.top = sd;
     this.sun.shadow.camera.bottom = -sd;
+    // Softening the shadow keeps the edge of the shadow frustum from reading
+    // as a hard line across open ground.
+    this.sun.shadow.intensity = 0.82;
     this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.035;
+    this.sun.shadow.normalBias = 0.06;
     this.sun.target.position.set(0, 0, 0);
     scene.add(this.sun);
     scene.add(this.sun.target);
@@ -283,8 +286,8 @@ export class DayNight {
       : 'sunset';
     s.deepWaterColor.copy(k.fog).lerp(C(0x0a2c42), 0.62);
 
-    const fogMul = this.quality.fogDensity * (1 + this.cloudiness * 0.5);
-    s.fogDensity = (k.night > 0.5 ? 0.0022 : 0.0013) * fogMul;
+    const fogMul = this.quality.fogDensity * (this.fogScale ?? 1) * (1 + this.cloudiness * 0.5);
+    s.fogDensity = (k.night > 0.5 ? 0.00105 : 0.00055) * fogMul;
     this.fog.color.copy(k.fog);
     this.fog.density = s.fogDensity;
     this.scene.background = null;
@@ -299,13 +302,13 @@ export class DayNight {
     this.skyMat.uniforms.uCloud.value = this.cloudiness;
 
     this.sun.color.copy(k.sun);
-    this.sun.intensity = k.si * cloudDim;
+    this.sun.intensity = k.si * cloudDim * 1.25;
     this.sun.visible = k.si * cloudDim > 0.04;
     this.hemi.color.copy(k.hor);
     this.hemi.groundColor.copy(C(0x4a5140).lerp(k.fog, 0.4));
-    this.hemi.intensity = (0.42 + (1 - k.night) * 0.35) * (0.85 + this.cloudiness * 0.55);
+    this.hemi.intensity = (0.30 + (1 - k.night) * 0.26) * (0.85 + this.cloudiness * 0.55);
     this.ambient.color.copy(k.amb);
-    this.ambient.intensity = k.ai;
+    this.ambient.intensity = k.ai * 0.72;
 
     this.starMat.uniforms.uOpacity.value = clamp((k.night - 0.35) / 0.5, 0, 1) * (1 - this.cloudiness * 0.75);
     this.moon.material.opacity = clamp((k.night - 0.2) / 0.6, 0, 1) * 0.9;
@@ -339,7 +342,7 @@ export class DayNight {
     if (this._envRT) this._envRT.dispose();
     this._envRT = rt;
     this.scene.environment = rt.texture;
-    this.scene.environmentIntensity = 0.85;
+    this.scene.environmentIntensity = 0.62;
   }
 
   /** Keep the sky, stars and shadow volume centred on the player. */
@@ -354,7 +357,7 @@ export class DayNight {
     this._envTimer -= dt;
     if (this._envDirty && this._envTimer <= 0) {
       this._envDirty = false;
-      this._envTimer = 1.5;
+      this._envTimer = 4.0;   // PMREM is expensive and the sky barely moves
       this._refreshEnv();
     }
 

@@ -10,6 +10,7 @@ import {
   LOCATIONS, COLLECTIBLES, QUESTS, ACHIEVEMENTS, CUSTOMIZE, SHOP,
   TIPS, CONTROLS, DRINKS, EMOTES, QUALITY_PRESETS, xpBounds,
 } from './config.js';
+import { MISSIONS, RACES } from './missions.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,13 +24,20 @@ export class UI {
       hearts: $('stat-hearts'), coins: $('stat-coins'), level: $('stat-level'), xp: $('stat-xp'),
       clock: $('stat-clock'), weather: $('stat-weather'),
       qt: $('quest-tracker'), qtTitle: $('qt-title'), qtDesc: $('qt-desc'), qtProg: $('qt-prog'),
+      mt: $('mission-tracker'), mtTitle: $('mt-title'), mtStep: $('mt-step'),
+      mtProg: $('mt-prog'), mtDist: $('mt-dist'), mtKicker: $('mt-kicker'),
+      brief: $('brief'), briefTitle: $('brief-title'), briefText: $('brief-text'),
+      briefSteps: $('brief-steps'), briefReward: $('brief-reward'), briefKicker: $('brief-kicker'),
       prompt: $('interact-prompt'), promptLabel: $('interact-label'),
       toasts: $('toast-stack'), banner: $('discovery-banner'), bannerTitle: $('db-title'), bannerSub: $('db-sub'),
       overlay: $('overlay'), ovBody: $('ov-body'), ovTabs: $('ov-tabs'),
+      spExtra: $('sp-extra'), voiceStrip: $('voice-strip'), voiceHeard: $('voice-heard'), voiceReply: $('voice-reply'),
       modal: $('modal'), modalCard: $('modal-card'),
       dialogue: $('dialogue'), dlgName: $('dlg-name'), dlgText: $('dlg-text'), dlgChoices: $('dlg-choices'),
       touch: $('touch-controls'), photo: $('photo-ui'), wheel: $('emote-wheel'),
       minimap: $('minimap'), tutorial: $('tutorial-card'), tutorialList: $('tutorial-list'),
+      speedo: $('speedo'), spKmh: $('sp-kmh'), spFill: $('sp-fill'), spName: $('sp-name'),
+      tbtnExit: $('tbtn-exitcar'),
       continueBtn: $('btn-continue'), profileLine: $('menu-profile-line'),
     };
     this.overlayTab = 'map';
@@ -143,6 +151,7 @@ export class UI {
     this.el.level.textContent = s.level;
     this.el.xp.style.width = (this.game.save.xpProgress().pct * 100).toFixed(1) + '%';
     this.updateQuestTracker();
+    this.updateMissionTracker();
   }
 
   setClock(hour, weatherIcon) {
@@ -152,7 +161,62 @@ export class UI {
     this.el.weather.textContent = weatherIcon;
   }
 
+  /**
+   * The objective panel. It replaces the quest tracker while a mission runs:
+   * two trackers stacked on top of each other is how a HUD stops being read.
+   */
+  updateMissionTracker() {
+    // A running race takes the slot: it has a clock, and a clock wins.
+    const h = this.game.races?.hud() || this.game.missions?.hud();
+    if (this.el.mtKicker) this.el.mtKicker.textContent = this.game.races?.active ? 'Time trial' : 'Date';
+    this.el.mt.classList.toggle('hidden', !h);
+    if (!h) return;
+    this.el.mtTitle.textContent = h.name;
+    this.el.mtStep.textContent = h.label;
+    this.el.mtProg.textContent = h.prog;
+    this.el.mtDist.textContent = h.dist == null ? ''
+      : h.dist > 999 ? `${(h.dist / 1000).toFixed(1)} km` : `${h.dist} m`;
+  }
+
+  /** Mission brief: what it is, what you will be asked to do, what it pays. */
+  showBrief(def, onAccept) {
+    const el = this.el;
+    el.briefKicker.textContent = def.race ? 'Time trial' : 'New date';
+    el.briefTitle.textContent = def.name;
+    el.briefText.textContent = def.brief || '';
+    el.briefSteps.innerHTML = (def.steps || []).map(s => `<li>${s.label}</li>`).join('');
+    const r = def.reward || {};
+    const bits = [];
+    if (r.coins) bits.push(`${r.coins} coins`);
+    if (r.hearts) bits.push(`${r.hearts} hearts`);
+    if (r.xp) bits.push(`${r.xp} XP`);
+    if (def.unlock) bits.push(`unlocks ${def.unlock.split(':')[1]}`);
+    el.briefReward.textContent = bits.length ? `Reward — ${bits.join(', ')}` : '';
+    el.brief.classList.remove('hidden');
+    this.briefOpen = true;
+
+    const close = () => {
+      el.brief.classList.add('hidden');
+      this.briefOpen = false;
+      accept.removeEventListener('click', yes);
+      decline.removeEventListener('click', no);
+    };
+    const accept = document.getElementById('brief-accept');
+    const decline = document.getElementById('brief-decline');
+    const yes = () => { close(); onAccept(true); };
+    const no = () => { close(); onAccept(false); };
+    accept.addEventListener('click', yes);
+    decline.addEventListener('click', no);
+  }
+
+  closeBrief() {
+    this.el.brief.classList.add('hidden');
+    this.briefOpen = false;
+  }
+
   updateQuestTracker() {
+    // A running mission owns the tracker slot.
+    if (this.game.missions?.active) { this.el.qt.classList.add('hidden'); return; }
     const q = this.game.quests.tracked;
     if (!q) { this.el.qt.classList.add('hidden'); return; }
     const p = this.game.quests.progressOf(q);
@@ -160,6 +224,23 @@ export class UI {
     this.el.qtTitle.textContent = q.name;
     this.el.qtDesc.textContent = q.desc;
     this.el.qtProg.textContent = `${p.value} / ${p.target}`;
+  }
+
+  /** Speedometer, shown only while driving. */
+  setDriving(on, name = '') {
+    this.el.speedo.classList.toggle('hidden', !on);
+    this.el.tbtnExit?.classList.toggle('hidden', !on);
+    if (on) this.el.spName.textContent = name;
+  }
+
+  /** Speedometer. `extra` shows altitude when flying. */
+  setSpeed(kmh, frac, extra = null) {
+    this.el.spKmh.textContent = Math.round(kmh);
+    this.el.spFill.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
+    if (this.el.spExtra) {
+      this.el.spExtra.textContent = extra || '';
+      this.el.spExtra.classList.toggle('hidden', !extra);
+    }
   }
 
   showPrompt(label) {
@@ -247,9 +328,155 @@ export class UI {
       shop: () => this.renderShop(body),
       customize: () => this.renderCustomize(body),
       achievements: () => this.renderAchievements(body),
+      dates: () => this.renderDates(body),
+      voice: () => this.renderVoice(body),
       settings: () => this.renderSettings(body),
     }[this.overlayTab];
     r ? r() : (body.innerHTML = '');
+  }
+
+  /** Dates tab: the mission list, and the time trials with their best times. */
+  renderDates(body) {
+    const g = this.game;
+    const ms = g.missions, rs = g.races;
+    const active = ms?.active;
+    const rows = MISSIONS.map(d => {
+      const rec = ms.record(d.id);
+      const locked = d.after && !ms.record(d.after).done;
+      const state = rec.done ? 'done' : locked ? 'locked' : 'open';
+      const where = d.giver ? `${d.giver.name} — ${(LOCATIONS[d.giver.loc]?.name) || d.giver.loc}` : '';
+      return `<div class="opt-row">
+        <label>${d.name}<span class="hint">${rec.done ? 'Completed'
+          : locked ? `Finish "${MISSIONS.find(m => m.id === d.after)?.name}" first`
+          : `${d.steps.length} steps · ${where}`}</span></label>
+        <div class="opt-ctl">${
+          state === 'open' && !active ? `<button class="btn btn-small btn-primary" data-start="${d.id}">Start</button>`
+          : state === 'done' ? '<span class="hint">✓</span>' : '<span class="hint">—</span>'}</div>
+      </div>`;
+    }).join('');
+
+    const races = RACES.map(r => {
+      const rec = rs.record(r.id);
+      const best = rec.best == null ? 'no time yet' : `best ${rec.best.toFixed(1)}s`;
+      const craft = { car: 'car', boat: 'boat', heli: 'helicopter' }[r.craft];
+      return `<div class="opt-row">
+        <label>${r.name}<span class="hint">${r.points.length} checkpoints by ${craft} · par ${r.par}s · ${best}</span></label>
+        <div class="opt-ctl"><button class="btn btn-small" data-race="${r.id}">Start</button></div>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div class="section">
+        <div class="section-title">Dates</div>
+        <p class="hint">${active
+          ? `Running: <b>${active.def.name}</b> — ${active.step.label}`
+          : 'Find the noticeboards around the island, or start one from here.'}</p>
+        ${rows}
+        ${active ? '<div class="btn-row"><button class="btn btn-small" id="date-abandon">Leave this one for now</button></div>' : ''}
+      </div>
+      <div class="section">
+        <div class="section-title">Time trials</div>
+        <p class="hint">Get into the right vehicle first, then start. Pass every checkpoint under par.</p>
+        ${races}
+      </div>`;
+
+    body.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
+      const def = MISSIONS.find(d => d.id === b.dataset.start);
+      this.closeOverlay();
+      this.showBrief(def, (yes) => { if (yes) g.missions.start(def.id); });
+    }));
+    body.querySelectorAll('[data-race]').forEach(b => b.addEventListener('click', () => {
+      this.closeOverlay();
+      g.races.start(b.dataset.race);
+    }));
+    body.querySelector('#date-abandon')?.addEventListener('click', () => {
+      g.missions.abandon('Left for another time.');
+      this.renderOverlay();
+    });
+  }
+
+  /** Voice tab: push-to-talk settings and the room code for voice chat. */
+  renderVoice(body) {
+    const g = this.game;
+    const lv = g.voice;
+    const vc = g.voiceChat;
+    const s = g.save.state.settings || (g.save.state.settings = {});
+    const voices = (typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : []) || [];
+    const micNote = lv?.available
+      ? 'Hold <b>V</b> (or the 🎙 button) and speak. Release to let them answer.'
+      : 'This browser has no speech recognition. Chrome, Edge and Safari have it; Firefox does not.';
+    const chatNote = vc?.available
+      ? 'Share the code with your partner. Same code, same room — you will hear each other in 3D as you move.'
+      : 'Live voice chat needs the signalling server from <code>server/</code> running, and its address in <code>VOICE.serverUrl</code>.';
+
+    body.innerHTML = `
+      <div class="section">
+        <div class="section-title">Talk to ${g.companion?.name || 'your partner'}</div>
+        <p class="hint">${micNote}</p>
+        <div class="opt-row">
+          <label>Voice replies<span class="hint">Spoken out loud</span></label>
+          <div class="opt-ctl"><button class="btn btn-small ${lv?.enabled ? 'btn-primary' : ''}" id="v-enable">${lv?.enabled ? 'On' : 'Off'}</button></div>
+        </div>
+        ${voices.length ? `<div class="opt-row">
+          <label>Their voice</label>
+          <div class="opt-ctl"><select id="v-voice">${voices.map(v =>
+            `<option value="${v.name}" ${lv?.voice?.name === v.name ? 'selected' : ''}>${v.name}</option>`).join('')}</select></div>
+        </div>` : ''}
+        <div class="opt-row">
+          <label>Try saying<span class="hint">"where are we", "what time is it", "hold my hand", "let's take a photo", "I love you"</span></label>
+          <div class="opt-ctl"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Voice chat with a real person</div>
+        <p class="hint">${chatNote}</p>
+        <div class="opt-row">
+          <label>Room code</label>
+          <div class="opt-ctl">
+            <input id="v-room" class="voice-code" maxlength="12" value="${(s.voiceRoom || '').replace(/[^A-Za-z0-9]/g, '')}" placeholder="LOVE42">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn ${vc?.connected ? '' : 'btn-primary'}" id="v-connect" ${vc?.available ? '' : 'disabled'}>
+            ${vc?.connected ? 'Leave room' : 'Join room'}</button>
+          <button class="btn btn-small" id="v-mute" ${vc?.connected ? '' : 'disabled'}>${vc?.muted ? 'Unmute mic' : 'Mute mic'}</button>
+        </div>
+        <p class="hint" id="v-status">${g.voiceStatus || (vc?.connected ? `Connected — ${vc.peers.size} other here` : 'Not connected')}</p>
+      </div>`;
+
+    const $i = (id) => body.querySelector('#' + id);
+    $i('v-enable')?.addEventListener('click', () => {
+      if (lv) { lv.enabled = !lv.enabled; this.renderOverlay(); }
+    });
+    $i('v-voice')?.addEventListener('change', (e) => lv?.setVoiceName(e.target.value));
+    $i('v-room')?.addEventListener('input', (e) => {
+      s.voiceRoom = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      e.target.value = s.voiceRoom;
+      g.save.touch();
+    });
+    $i('v-connect')?.addEventListener('click', () => g.toggleVoiceChat());
+    $i('v-mute')?.addEventListener('click', () => {
+      vc?.setMuted(!vc.muted);
+      this.renderOverlay();
+    });
+  }
+
+  /** Show which runtime tier the governor settled on, in Settings. */
+  setTierLabel(label, auto) {
+    this._tierLabel = label;
+    this._tierAuto = auto;
+    if (this.overlayOpen && this.overlayTab === 'settings') this.renderOverlay();
+  }
+
+  /** The strip above the HUD that shows what was heard and what was said back. */
+  setVoiceState(state, heard = '', reply = '') {
+    const el = this.el.voiceStrip;
+    if (!el) return;
+    el.classList.toggle('hidden', state === 'off');
+    el.classList.toggle('listening', state === 'listening');
+    el.classList.toggle('speaking', state === 'speaking');
+    if (heard !== null) this.el.voiceHeard.textContent = heard;
+    if (reply !== null) this.el.voiceReply.textContent = reply;
   }
 
   renderMap(body) {
@@ -438,6 +665,9 @@ export class UI {
         ${row('Skin tone', 'skin', CUSTOMIZE.skin)}
         ${row('Hair colour', 'hair', CUSTOMIZE.hair)}
         ${row('Hair style', 'hairStyle', CUSTOMIZE.styles, true)}
+        ${row('Outfit', 'outfit', CUSTOMIZE.outfits, true)}
+        ${row('Bottoms', 'bottom', CUSTOMIZE.bottoms, true)}
+        ${row('Eye colour', 'eyes', CUSTOMIZE.eyes)}
         ${row('Shirt', 'shirt', CUSTOMIZE.shirt)}
         ${row('Trousers', 'pants', CUSTOMIZE.pants)}
         ${row('Shoes', 'shoes', CUSTOMIZE.shoes)}
@@ -494,7 +724,8 @@ export class UI {
       <div class="section">
         <div class="section-title">Graphics</div>
         <div class="opt-row">
-          <label>Quality<span class="hint">Auto picks a preset from your device</span></label>
+          <label>Quality<span class="hint">Auto measures your frame rate and tunes itself${
+            this._tierLabel ? ` — currently <b>${this._tierLabel}</b>` : ''}</span></label>
           <div class="opt-ctl">${seg('quality', [
             { v: 'auto', l: 'Auto' }, { v: 'low', l: 'Low' }, { v: 'medium', l: 'Medium' }, { v: 'high', l: 'High' },
           ], st.quality)}</div>
@@ -510,6 +741,15 @@ export class UI {
         <div class="opt-row">
           <label>Fullscreen</label>
           <div class="opt-ctl"><button class="btn btn-small" id="set-fullscreen">Toggle fullscreen</button></div>
+        </div>
+        <div class="opt-row">
+          <label>Fast loading<span class="hint">Remember the generated island so it loads in seconds next time</span></label>
+          <div class="opt-ctl">${seg('cacheWorld', [{ v: 'on', l: 'On' }, { v: 'off', l: 'Off' }],
+            st.cacheWorld === false ? 'off' : 'on')}</div>
+        </div>
+        <div class="opt-row">
+          <label>Stored island data</label>
+          <div class="opt-ctl"><button class="btn btn-small" id="set-clearcache">Clear and rebuild</button></div>
         </div>
       </div>
       <div class="section">
@@ -566,6 +806,15 @@ export class UI {
       this.game.dayNight.setTime(parseFloat(e.target.value));
     });
     $('set-fullscreen')?.addEventListener('click', () => this.game.toggleFullscreen());
+    $('set-clearcache')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Clearing…';
+      const ok = await this.game.clearWorldCache();
+      e.target.textContent = ok ? 'Cleared' : 'Nothing stored';
+      this.toast('Island data', ok
+        ? 'Cleared. The next visit rebuilds the island from scratch.'
+        : 'Nothing was stored for this device.');
+    });
     $('set-save')?.addEventListener('click', () => this.game.saveGame(true));
     $('set-reset')?.addEventListener('click', () => this.confirmReset());
   }

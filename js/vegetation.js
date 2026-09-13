@@ -15,7 +15,7 @@ import * as TEX from './textures.js';
 import { mergeGeometries } from './batching.js';
 import { makeRng, fbm } from './noise.js';
 
-const CELL = 110;
+const CELL = 250;
 const M = () => materials();
 
 /* --------------------------------------------------------- wind shader */
@@ -176,6 +176,10 @@ function rockModel(seed) {
 
 /* ------------------------------------------------------------ system */
 
+/** Op and kind tables — the recording stores indices into these. */
+const VEG_OPS = ['addTree', 'addBush', 'addFlower', 'addGrass', 'addReeds', 'addRock'];
+const VEG_KINDS = ['', 'palm', 'pine', 'oak', 'tropical', 'rose', 'white', 'gold'];
+
 export class Vegetation {
   constructor(scene, quality) {
     this.scene = scene;
@@ -242,6 +246,7 @@ export class Vegetation {
   }
 
   _push(kind, geo, mat, matrix, x, z, shadow = true, tint = null) {
+    if (this.mute) return;              // replaying a recording instead
     const key = `${kind}|${Math.floor(x / CELL)}|${Math.floor(z / CELL)}`;
     let b = this.buckets.get(key);
     if (!b) this.buckets.set(key, (b = { geo, mat, matrices: [], colors: [], shadow, tinted: false }));
@@ -266,6 +271,7 @@ export class Vegetation {
   }
 
   addTree(type, x, y, z, scale = 1, ry = 0, tilt = 0) {
+    this._note('addTree', type, x, y, z, scale, ry, tilt);
     const mdl = this.models[type] || this.models.oak;
     const mtx = mat4(x, y, z, tilt * 0.3, ry, tilt, scale, scale, scale);
     this._push('trunk:' + type, mdl.trunk, this.trunkMat, mtx, x, z, true,
@@ -278,6 +284,7 @@ export class Vegetation {
   }
 
   addBush(x, y, z, scale = 1, ry = 0) {
+    this._note('addBush', '', x, y, z, scale, ry, 0);
     this._push('bush', this.bushGeo, this.bushMat,
       mat4(x, y + 0.26 * scale, z, 0, ry, 0, scale * 0.55, scale * 0.42, scale * 0.55), x, z, true,
       this._tint(this._rng, 0.22, 0.07));
@@ -285,6 +292,7 @@ export class Vegetation {
   }
 
   addFlower(x, y, z, kind = 'rose', scale = 1, ry = 0) {
+    this._note('addFlower', kind, x, y, z, scale, ry, 0);
     const m = mat4(x, y, z, 0, ry, 0, scale, scale, scale);
     this._push('stem', this.flowerModel.stem, this.stemMat, m, x, z, false,
       this._tint(this._rng, 0.16, 0.05));
@@ -294,6 +302,7 @@ export class Vegetation {
   }
 
   addGrass(x, y, z, scale = 1, ry = 0) {
+    this._note('addGrass', '', x, y, z, scale, ry, 0);
     this._push('grass', this.grassGeo, this.grassMat,
       mat4(x, y, z, 0, ry, 0, scale, scale * (0.8 + scale * 0.3), scale), x, z, false,
       this._tint(this._rng, 0.24, 0.08));
@@ -301,18 +310,83 @@ export class Vegetation {
   }
 
   addReeds(x, y, z, scale = 1, ry = 0) {
+    this._note('addReeds', '', x, y, z, scale, ry, 0);
     this._push('reed', this.reedGeo, this.reedMat,
       mat4(x, y - 0.15 * scale, z, 0, ry, 0, scale, scale, scale), x, z, false,
       this._tint(this._rng, 0.2, 0.08));
   }
 
   addRock(x, y, z, scale = 1, ry = 0, variant = 0) {
+    this._note('addRock', '', x, y, z, scale, ry, variant);
     const geo = this.rockGeos[variant % this.rockGeos.length];
     this._push('rock' + (variant % 3), geo, this.rockMat,
       mat4(x, y + scale * 0.16, z, 0, ry, 0, scale, scale * 0.8, scale), x, z, true,
       this._tint(this._rng, 0.18, 0.04));
     this.stats.rocks++;
     if (scale > 0.9) this.colliders.push({ x, z, r: scale * 0.85 });
+  }
+
+  /* ------------------------------------------------------------ replay */
+
+  /**
+   * Scattering vegetation is expensive because of what it rejects, not what it
+   * places: every candidate costs a slope lookup, a path distance and a physics
+   * probe, and most candidates are thrown away. The placements that survive are
+   * a pure function of the island, so record them once and replay them on later
+   * visits — same trees, same everything, without the search.
+   */
+  record() {
+    this._log = { ops: [], args: [], kinds: [] };
+  }
+
+  /** Pack the recording into typed arrays for storage. */
+  snapshot() {
+    const l = this._log;
+    if (!l || !l.ops.length) return null;
+    const n = l.ops.length;
+    const args = new Float32Array(n * 6);
+    for (let i = 0; i < n; i++) args.set(l.args[i], i * 6);
+    return {
+      ops: Uint8Array.from(l.ops),
+      kinds: Uint8Array.from(l.kinds),
+      args,
+      table: VEG_KINDS,
+    };
+  }
+
+  /** Re-run a recording. Returns false if it does not match this build. */
+  replay(snap) {
+    if (!snap?.ops?.length || snap.args?.length !== snap.ops.length * 6) return false;
+    if ((snap.table || []).join(',') !== VEG_KINDS.join(',')) return false;
+    // The muted build already counted everything it tried to place; the replay
+    // is the real placement, so start the tally again.
+    this.stats = { trees: 0, bushes: 0, flowers: 0, grass: 0, rocks: 0 };
+    this.colliders.length = 0;
+    const { ops, kinds, args } = snap;
+    for (let i = 0; i < ops.length; i++) {
+      const o = i * 6;
+      const k = VEG_KINDS[kinds[i]];
+      switch (VEG_OPS[ops[i]]) {
+        case 'addTree': this.addTree(k, args[o], args[o + 1], args[o + 2], args[o + 3], args[o + 4], args[o + 5]); break;
+        case 'addBush': this.addBush(args[o], args[o + 1], args[o + 2], args[o + 3], args[o + 4]); break;
+        case 'addFlower': this.addFlower(args[o], args[o + 1], args[o + 2], k, args[o + 3], args[o + 4]); break;
+        case 'addGrass': this.addGrass(args[o], args[o + 1], args[o + 2], args[o + 3], args[o + 4]); break;
+        case 'addReeds': this.addReeds(args[o], args[o + 1], args[o + 2], args[o + 3], args[o + 4]); break;
+        case 'addRock': this.addRock(args[o], args[o + 1], args[o + 2], args[o + 3], args[o + 4], args[o + 5]); break;
+        default: return false;
+      }
+    }
+    return true;
+  }
+
+  _note(op, kind, a, b, c, d, e, f) {
+    const l = this._log;
+    if (!l) return;
+    l.ops.push(VEG_OPS.indexOf(op));
+    let ki = VEG_KINDS.indexOf(kind);
+    if (ki < 0) ki = 0;
+    l.kinds.push(ki);
+    l.args.push([a || 0, b || 0, c || 0, d || 0, e || 0, f || 0]);
   }
 
   /** Turn the accumulated matrices into InstancedMeshes. */

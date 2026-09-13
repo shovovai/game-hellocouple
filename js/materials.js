@@ -12,6 +12,7 @@ import * as TEX from './textures.js';
 let M = null;
 
 const std = (o) => new THREE.MeshStandardMaterial(o);
+const nrm = (v) => new THREE.Vector2(v, v);
 
 export function createMaterials() {
   if (M) return M;
@@ -25,27 +26,27 @@ export function createMaterials() {
 
   M = {
     // --- structural -----------------------------------------------------
-    plank:     std({ map: plank, roughness: 0.85 }),
+    plank:     std({ map: plank, roughness: 0.85, normalMap: TEX.archNormal('wood'), normalScale: nrm(0.5) }),
     plankWorn: std({ map: tiled(plank, 2), color: 0xd8c3a6, roughness: 0.92 }),
-    wood:      std({ map: wood, roughness: 0.8 }),
-    woodDark:  std({ map: woodDarkTex, roughness: 0.78 }),
+    wood:      std({ map: wood, roughness: 0.8, normalMap: TEX.archNormal('wood'), normalScale: nrm(0.6) }),
+    woodDark:  std({ map: woodDarkTex, roughness: 0.78, normalMap: TEX.archNormal('wood'), normalScale: nrm(0.6) }),
     woodPale:  std({ map: woodPaleTex, roughness: 0.8 }),
     bark:      std({ map: TEX.barkTexture(), roughness: 0.95 }),
 
-    plasterWhite: std({ map: TEX.plasterTexture('plWhite', [238, 233, 224]), roughness: 0.92 }),
-    plasterCream: std({ map: TEX.plasterTexture('plCream', [232, 214, 182]), roughness: 0.92 }),
-    plasterBlue:  std({ map: TEX.plasterTexture('plBlue', [176, 199, 214]), roughness: 0.92 }),
-    plasterRose:  std({ map: TEX.plasterTexture('plRose', [226, 188, 190]), roughness: 0.92 }),
-    plasterSage:  std({ map: TEX.plasterTexture('plSage', [196, 206, 184]), roughness: 0.92 }),
-    brick:        std({ map: TEX.brickTexture(), roughness: 0.95 }),
-    roof:         std({ map: TEX.roofTexture(), roughness: 0.88 }),
-    roofSlate:    std({ map: TEX.roofTexture(), color: 0x5c6470, roughness: 0.8 }),
-    stone:        std({ map: TEX.rockTexture(), roughness: 0.95 }),
+    plasterWhite: std({ map: TEX.plasterTexture('plWhite', [238, 233, 224]), roughness: 0.92 , normalMap: TEX.archNormal('plaster'), normalScale: nrm(0.45) }),
+    plasterCream: std({ map: TEX.plasterTexture('plCream', [232, 214, 182]), roughness: 0.92 , normalMap: TEX.archNormal('plaster'), normalScale: nrm(0.45) }),
+    plasterBlue:  std({ map: TEX.plasterTexture('plBlue', [176, 199, 214]), roughness: 0.92 , normalMap: TEX.archNormal('plaster'), normalScale: nrm(0.45) }),
+    plasterRose:  std({ map: TEX.plasterTexture('plRose', [226, 188, 190]), roughness: 0.92 , normalMap: TEX.archNormal('plaster'), normalScale: nrm(0.45) }),
+    plasterSage:  std({ map: TEX.plasterTexture('plSage', [196, 206, 184]), roughness: 0.92 , normalMap: TEX.archNormal('plaster'), normalScale: nrm(0.45) }),
+    brick:        std({ map: TEX.brickTexture(), roughness: 0.95, normalMap: TEX.archNormal('brick'), normalScale: nrm(0.9) }),
+    roof:         std({ map: TEX.roofTexture(), roughness: 0.88, normalMap: TEX.archNormal('roof'), normalScale: nrm(0.85) }),
+    roofSlate:    std({ map: TEX.roofTexture(), color: 0x5c6470, roughness: 0.8, normalMap: TEX.archNormal('roof'), normalScale: nrm(0.8) }),
+    stone:        std({ map: TEX.rockTexture(), roughness: 0.95, normalMap: TEX.archNormal('stone'), normalScale: nrm(0.8) }),
     rockFacet:    std({ color: 0x9b978f, roughness: 0.96, flatShading: true }),
-    stoneLight:   std({ map: TEX.rockTexture(), color: 0xcfc9bd, roughness: 0.92 }),
-    concrete:     std({ color: 0xb8b4ac, roughness: 0.96 }),
-    paving:       std({ map: tiled(TEX.pavingTexture(), 1), color: 0xbfc2c0, roughness: 0.94 }),
-    asphalt:      std({ map: tiled(TEX.asphaltTexture(), 1), roughness: 0.98 }),
+    stoneLight:   std({ map: TEX.rockTexture(), color: 0xcfc9bd, roughness: 0.92, normalMap: TEX.archNormal('stone'), normalScale: nrm(0.7) }),
+    concrete:     std({ color: 0xb8b4ac, roughness: 0.96, normalMap: TEX.archNormal('concrete'), normalScale: nrm(0.4) }),
+    paving:       std({ map: tiled(TEX.pavingTexture(), 1), color: 0xc2c6c8, roughness: 0.92, normalMap: TEX.archNormal('paving'), normalScale: nrm(0.5) }),
+    asphalt:      std({ map: tiled(TEX.asphaltTexture(), 1), color: 0xa2a6ad, roughness: 0.96, normalMap: TEX.archNormal('asphalt'), normalScale: nrm(0.45) }),
     dirtPath:     std({ map: tiled(TEX.dirtTexture(), 1), roughness: 0.99 }),
     sand:         std({ map: TEX.sandTexture(), roughness: 0.98 }),
 
@@ -101,7 +102,48 @@ export function createMaterials() {
     white:       std({ color: 0xf7f7f5, roughness: 0.6 }),
     terracotta:  std({ color: 0xb2653f, roughness: 0.9 }),
     paper:       std({ color: 0xf6efe2, roughness: 0.95, side: THREE.DoubleSide }),
+
+    // --- city ------------------------------------------------------------
+    kerb:        std({ color: 0xb9bcc0, roughness: 0.9 }),
+    sidewalk:    std({ map: tiled(TEX.pavingTexture(), 1), color: 0xc6c9cc, roughness: 0.9 }),
+    roadCity:    std({ map: tiled(TEX.asphaltTexture(), 1), color: 0xa8acb4, roughness: 0.93 }),
+    paint:       std({ color: 0xf7f2e0, roughness: 0.7 }),
+    paintYellow: std({ color: 0xe8c766, roughness: 0.8 }),
+    rooftop:     std({ color: 0x6e7178, roughness: 0.95 }),
+    glassTower:  new THREE.MeshPhysicalMaterial({
+      color: 0x88a8c4, roughness: 0.08, metalness: 0.25,
+      transparent: true, opacity: 0.55, side: THREE.FrontSide,
+    }),
+    neonSign:    std({ color: 0xffffff, emissive: 0x54c8ff, emissiveIntensity: 0.6, roughness: 0.4 }),
   };
+
+  /**
+   * Facade set. Each entry is one shared material, so a whole district of
+   * towers collapses into a handful of draw calls after batching. The emissive
+   * map is what switches the windows on after dark.
+   */
+  const facadeSpecs = [
+    { key: 'concrete', wall: [196, 192, 184], glass: [104, 134, 158], cols: 4, rows: 4, seedNum: 1, lit: 0.40 },
+    { key: 'brickCity', wall: [162, 104, 88], glass: [118, 142, 160], frame: [240, 238, 232], cols: 4, rows: 4, seedNum: 2, lit: 0.45 },
+    { key: 'glassTowerA', wall: [92, 118, 140], glass: [122, 168, 200], frame: [150, 172, 190], cols: 5, rows: 4, glassy: 1, seedNum: 3, lit: 0.30 },
+    { key: 'glassTowerB', wall: [78, 96, 112], glass: [96, 140, 178], frame: [126, 148, 168], cols: 6, rows: 4, glassy: 1, seedNum: 4, lit: 0.34 },
+    { key: 'cream', wall: [224, 214, 192], glass: [110, 136, 156], cols: 3, rows: 4, seedNum: 5, lit: 0.48 },
+    { key: 'sage', wall: [168, 180, 166], glass: [104, 130, 150], cols: 4, rows: 4, seedNum: 6, lit: 0.42 },
+  ];
+  M.facades = facadeSpecs.map(spec => std({
+    map: TEX.facadeTexture(spec.key, spec),
+    emissiveMap: TEX.facadeLitTexture(spec.key, spec),
+    emissive: 0xffffff,
+    emissiveIntensity: 0,
+    roughness: spec.glassy ? 0.28 : 0.88,
+    metalness: spec.glassy ? 0.22 : 0.0,
+  }));
+  M.shopfronts = [
+    std({ map: TEX.shopfrontTexture('a', { accent: [226, 95, 134] }), roughness: 0.5, metalness: 0.05 }),
+    std({ map: TEX.shopfrontTexture('b', { accent: [86, 150, 200] }), roughness: 0.5, metalness: 0.05 }),
+    std({ map: TEX.shopfrontTexture('c', { accent: [230, 170, 70] }), roughness: 0.5, metalness: 0.05 }),
+    std({ map: TEX.shopfrontTexture('d', { accent: [110, 180, 130] }), roughness: 0.5, metalness: 0.05 }),
+  ];
 
   return M;
 }
@@ -111,6 +153,8 @@ export function materials() { return M || createMaterials(); }
 /** Night lighting: switch windows and lamps on/off. */
 export function setNightLighting(on, strength = 1) {
   if (!M) return;
+  for (const f of M.facades || []) f.emissiveIntensity = on ? 1.05 * strength : 0.0;
+  M.neonSign.emissiveIntensity = on ? 1.8 * strength : 0.35;
   M.windowLit.emissiveIntensity = on ? 1.15 * strength : 0.0;
   M.lampGlass.emissiveIntensity = on ? 1.6 * strength : 0.15;
   M.lanternGlow.emissiveIntensity = on ? 1.5 * strength : 0.25;
@@ -119,6 +163,9 @@ export function setNightLighting(on, strength = 1) {
 
 export function disposeMaterials() {
   if (!M) return;
-  Object.values(M).forEach(m => m.dispose());
+  for (const v of Object.values(M)) {
+    if (Array.isArray(v)) v.forEach(m => m.dispose());
+    else v.dispose?.();
+  }
   M = null;
 }
