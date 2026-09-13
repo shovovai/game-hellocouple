@@ -55,6 +55,19 @@ function tube(rt, rb, h, seg = 12, open = false) {
  * maps are greyscale and shared across every character; only the material
  * colour changes per person.
  */
+/** One shared, soft, round shadow — every character and vehicle uses it. */
+let CONTACT_MAT = null;
+export function contactShadowMaterial() {
+  if (!CONTACT_MAT) {
+    CONTACT_MAT = new THREE.MeshBasicMaterial({
+      map: TEX.glowTexture('contact', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0)'),
+      transparent: true, depthWrite: false, opacity: 0.6,
+      blending: THREE.NormalBlending,
+    });
+  }
+  return CONTACT_MAT;
+}
+
 const SURFACE_REPEAT = { knit: [12, 15], denim: [12, 15], leather: [6, 6], skin: [4, 4], hair: [3, 4] };
 function surfMaps(kind) {
   const map = TEX.surfaceDetail(kind);
@@ -142,6 +155,9 @@ export class Character {
     this.emote = null;
     this.emoteTime = 0;
     this.blink = 0;
+    this.gaze = { yaw: 0, pitch: 0 };        // head turn, in head-local radians
+    this.gazeCurr = { yaw: 0, pitch: 0 };
+    this.mood = 0;                            // -1 sad .. 0 neutral .. 1 happy
     this.state = { speed: 0, grounded: true, sitting: false, vy: 0, swimming: false, hold: 0 };
   }
 
@@ -220,6 +236,18 @@ export class Character {
     body.scale.setScalar(this.scaleY);
     this.root.add(body);
     this.body = body;
+
+    // Contact shadow. A cast shadow is switched off on the lower tiers and is
+    // too soft to ground a figure anyway; this soft blob under the feet is what
+    // stops characters looking like they are hovering.
+    const blob = new THREE.Mesh(
+      shared('blob', () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)),
+      contactShadowMaterial());
+    blob.position.y = 0.02;
+    blob.scale.set(0.92, 1, 1.05);
+    blob.renderOrder = -1;
+    this.root.add(blob);
+    this.blob = blob;
 
     // ---- spine chain ----
     // The torso is built from capsules squashed on Z so the silhouette is
@@ -458,18 +486,26 @@ export class Character {
     }
   }
 
-  /** Hand: palm, fingers as one block, and a thumb — reads at gameplay range. */
+  /** Hand: palm, four separate fingers and a thumb. */
   _buildHand(el, side) {
     const m = this.mats;
     const hand = new THREE.Group();
     hand.position.set(0, -0.235, 0);
     el.add(hand);
-    const palm = this._add(hand, capsule(0.03, 0.035), m.skin, 0, -0.018, 0);
-    palm.scale.set(1, 1, 0.62);
-    const fingers = this._add(hand, capsule(0.025, 0.045), m.skin, 0, -0.062, 0.002);
-    fingers.scale.set(1.05, 1, 0.55);
-    const thumb = this._add(hand, capsule(0.013, 0.028), m.skin, -side * 0.03, -0.032, 0.012);
-    thumb.rotation.z = -side * 0.55;
+    const palm = this._add(hand, capsule(0.029, 0.038), m.skin, 0, -0.018, 0);
+    palm.scale.set(1.02, 1, 0.6);
+    // Four fingers with their own gaps: one block reads as a mitten at the
+    // distance a player actually looks at their own hands.
+    for (let i = 0; i < 4; i++) {
+      const t = (i - 1.5) / 1.5;
+      const len = 0.042 - Math.abs(t) * 0.008;
+      const f = this._add(hand, capsule(0.0088, len), m.skin,
+        t * 0.019, -0.058 - (0.004 - Math.abs(t) * 0.004), 0.002);
+      f.rotation.z = t * 0.14;
+      f.rotation.x = -0.12;
+    }
+    const thumb = this._add(hand, capsule(0.0125, 0.03), m.skin, -side * 0.031, -0.03, 0.014);
+    thumb.rotation.set(-0.2, 0, -side * 0.62);
     return hand;
   }
 
@@ -585,6 +621,30 @@ export class Character {
       this.hatGroup = null;
     }
   }
+
+  /**
+   * Turn the head toward a point in the world. A character that never looks at
+   * anything reads as a mannequin; this is the cheapest fix there is.
+   * Pass null to look straight ahead again.
+   */
+  lookAt(target, bodyYaw = 0) {
+    if (!target) { this.gaze.yaw = 0; this.gaze.pitch = 0; return; }
+    const r = this.root.position;
+    const dx = target.x - r.x, dz = target.z - r.z;
+    const dy = (target.y ?? r.y + 1.5) - (r.y + 1.55 * this.scaleY);
+    const dist = Math.hypot(dx, dz);
+    // Relative to where the body is already facing, and only as far as a neck
+    // actually turns — beyond that the character just faces forward.
+    let yaw = Math.atan2(dx, dz) - bodyYaw;
+    while (yaw > Math.PI) yaw -= Math.PI * 2;
+    while (yaw < -Math.PI) yaw += Math.PI * 2;
+    const reach = clamp(1 - (Math.abs(yaw) - 1.1) / 0.5, 0, 1);
+    this.gaze.yaw = clamp(yaw, -1.0, 1.0) * reach;
+    this.gaze.pitch = clamp(Math.atan2(dy, Math.max(0.4, dist)), -0.45, 0.45) * reach;
+  }
+
+  /** -1 .. 1. Lifts the brows and the corners of the mouth. */
+  setMood(v) { this.mood = clamp(v, -1, 1); }
 
   playEmote(id, duration = 2.6) {
     this.emote = id;
@@ -825,6 +885,18 @@ export class Character {
       c.z += (tg.z - c.z) * k;
       if (node) node.rotation.set(c.x, c.y, c.z);
     }
+    // Gaze is layered on after the pose blend: it should survive whatever the
+    // locomotion is doing, and split across neck and head like a real turn.
+    const gk = 1 - Math.exp(-dt * 7);
+    this.gazeCurr.yaw += (this.gaze.yaw - this.gazeCurr.yaw) * gk;
+    this.gazeCurr.pitch += (this.gaze.pitch - this.gazeCurr.pitch) * gk;
+    if (this.j.head && this.j.neck) {
+      this.j.head.rotation.y += this.gazeCurr.yaw * 0.68;
+      this.j.head.rotation.x += this.gazeCurr.pitch * 0.7;
+      this.j.neck.rotation.y += this.gazeCurr.yaw * 0.32;
+      this.j.neck.rotation.x += this.gazeCurr.pitch * 0.3;
+    }
+
     const o = this.currOffset;
     o.y += ((t.__y || 0) - o.y) * k;
     o.pitch += ((t.__pitch || 0) - o.pitch) * k;

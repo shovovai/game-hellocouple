@@ -100,7 +100,9 @@ function gableRoof(w, d, h, mat, overhang = 0.35) {
   const len = Math.hypot(h, d / 2 + overhang);
   for (const sz of [-1, 1]) {
     const s = B(mat, w + overhang * 2, 0.16, len * 2 * 0.5 + 0.1, 0, h / 2, sz * (d / 4 + overhang / 2));
-    s.rotation.x = -sz * slope;
+    // Rotating by +slope about X drops the far (+Z) edge, which is what makes a
+    // ridge rather than a valley — the sign here was inverted.
+    s.rotation.x = sz * slope;
     g.add(s);
   }
   return { group: g, ridge: h };
@@ -196,7 +198,7 @@ export function makeHouse(o = {}) {
     g.add(ridge);
     for (const sz of [-1, 1]) {
       const barge = B(m.white, w + 0.8, 0.13, 0.1, 0, h + roofH / 2, sz * (d / 4 + 0.2));
-      barge.rotation.x = -sz * Math.atan2(roofH, d / 2 + 0.35);
+      barge.rotation.x = sz * Math.atan2(roofH, d / 2 + 0.35);
       g.add(barge);
     }
     g.add(eaves(w, d, h + 0.02, m.white));

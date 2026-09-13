@@ -24,6 +24,7 @@ import { batchStatic } from './batching.js';
 import { buildCity } from './city.js';
 import { makeCarModel, CAR_COLORS, CAR_KINDS } from './vehicle.js';
 import { buildRoadGraph } from './layout.js';
+import { makeBoatModel, makeHeliModel } from './craft.js';
 
 const INTERIOR_ORIGIN = new THREE.Vector3(4000, 0, 4000);
 const M = () => materials();
@@ -244,6 +245,7 @@ export class World {
       ['Raising the town', () => this.buildTown()],
       ['Pouring the streets', () => this.buildCityDistrict()],
       ['Parking the cars', () => this.buildDrivableCars()],
+      ['Fuelling the boats', () => this.buildCraft()],
       ['Brewing the coffee', () => this.buildCafe()],
       ['Planting the park', () => this.buildPark()],
       ['Spreading the picnic', () => this.buildPicnic()],
@@ -284,30 +286,52 @@ export class World {
       this.static.add(mesh);
 
       if (isRoad) {
-        // sidewalks
+        // Offset a polyline sideways by `dist`, following the local tangent.
+        const offset = (dist) => road.pts.map((p, i) => {
+          const a = road.pts[Math.max(0, i - 1)], b = road.pts[Math.min(road.pts.length - 1, i + 1)];
+          let dx = b[0] - a[0], dz = b[1] - a[1];
+          const l = Math.hypot(dx, dz) || 1;
+          return [p[0] - (dz / l) * dist, p[1] + (dx / l) * dist];
+        });
+        const half = road.width * 0.5;
+
         for (const side of [-1, 1]) {
-          const off = road.pts.map((p, i) => {
-            const a = road.pts[Math.max(0, i - 1)], b = road.pts[Math.min(road.pts.length - 1, i + 1)];
-            let dx = b[0] - a[0], dz = b[1] - a[1];
-            const l = Math.hypot(dx, dz) || 1;
-            return [p[0] - (dz / l) * side * (road.width * 0.5 + 0.85),
-                    p[1] + (dx / l) * side * (road.width * 0.5 + 0.85)];
-          });
-          const sw = new THREE.Mesh(ribbon(off, 1.8, yFn, 0.16, 0.5), m.paving);
+          // kerb: a low raised strip between carriageway and pavement. Without
+          // it the road and the path are one flat sheet at different colours.
+          const kerbLine = offset(side * (half + 0.16));
+          const kerb = new THREE.Mesh(ribbon(kerbLine, 0.34, yFn, 0.2, 0.5), m.kerb);
+          kerb.receiveShadow = true;
+          kerb.castShadow = true;
+          this.static.add(kerb);
+
+          const sw = new THREE.Mesh(ribbon(offset(side * (half + 1.25)), 1.9, yFn, 0.19, 0.5), m.sidewalk);
           sw.receiveShadow = true;
           this.static.add(sw);
+
+          // solid edge line just inside the kerb
+          const edge = new THREE.Mesh(ribbon(offset(side * (half - 0.35)), 0.16, yFn, 0.105, 0.5), m.paint);
+          edge.receiveShadow = true;
+          this.static.add(edge);
         }
-        // centre dashes
-        const dash = [];
-        for (let i = 0; i < road.pts.length - 1; i += 2) dash.push(road.pts[i]);
-        if (dash.length > 2) {
-          for (let i = 0; i + 1 < dash.length; i += 2) {
-            const seg = [dash[i], dash[i + 1]];
-            const dm = new THREE.Mesh(ribbon(seg, 0.24, yFn, 0.11, 0.5),
-              new THREE.MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.85 }));
-            dm.receiveShadow = true;
-            this.static.add(dm);
-          }
+
+        // centre dashes — one shared material, or every dash would be its own
+        // batch and the town would cost a hundred extra draw calls
+        for (let i = 0; i + 1 < road.pts.length; i += 3) {
+          const seg = [road.pts[i], road.pts[i + 1]];
+          const dm = new THREE.Mesh(ribbon(seg, 0.2, yFn, 0.106, 0.5), m.paint);
+          dm.receiveShadow = true;
+          this.static.add(dm);
+        }
+
+        // street lamps down one side, alternating, plus the odd bin
+        for (let i = 6; i < road.pts.length - 6; i += 14) {
+          const side = (i % 28 === 6) ? 1 : -1;
+          const lp = offset(side * (half + 1.5))[i];
+          const y = yFn(lp[0], lp[1]);
+          if (y < 1.0) continue;
+          this.place(P.makeStreetLamp(), lp[0], y, lp[1], Math.atan2(-side, 0));
+          this.lightPool.add({ x: lp[0], y: 4.6, z: lp[1], color: 0xffd9a0, intensity: 1.5, distance: 17, night: true });
+          if (i % 28 === 6) this.place(P.makeTrashBin(), lp[0] + 1.2, y, lp[1], 0);
         }
       }
     }
@@ -457,6 +481,76 @@ export class World {
         x: s.x, y, z: s.z, r: 4.2, kind: 'drive',
         label: 'Drive', data: { car },
       });
+    });
+  }
+
+  /**
+   * Boats and helicopters. Boats sit in the water beside anything you can walk
+   * out on; helicopters sit on marked pads on high, open ground, so there is
+   * somewhere obvious to take off from and land back on.
+   */
+  buildCraft() {
+    const m = M();
+    this.boats = [];
+    this.helis = [];
+
+    // ---- boats, moored where there is deep water next to somewhere to stand
+    const moorings = [
+      { id: 'pier', off: 26 },
+      { id: 'beach', off: 30 },
+      { id: 'sunsetBeach', off: 28 },
+      { id: 'hiddenBeach', off: 24 },
+    ];
+    const colors = [0xf2f4f7, 0xe8514f, 0x2f6fb0, 0xf0c03c];
+    moorings.forEach((mo, i) => {
+      const loc = this.L.get(mo.id);
+      if (!loc) return;
+      const a = Math.atan2(loc.z, loc.x);
+      let x = 0, z = 0, found = false;
+      for (let d = mo.off; d < mo.off + 90; d += 4) {
+        const tx = Math.cos(a) * (Math.hypot(loc.x, loc.z) + d);
+        const tz = Math.sin(a) * (Math.hypot(loc.x, loc.z) + d);
+        if (this.terrain.height(tx, tz) < WORLD.seaLevel - 1.4) { x = tx; z = tz; found = true; break; }
+      }
+      if (!found) return;
+      const model = makeBoatModel(colors[i % colors.length], i + 3);
+      model.position.set(x, WORLD.seaLevel, z);
+      model.rotation.y = a + Math.PI;
+      this.dynamic.add(model);
+      const boat = { model, x, z, heading: a + Math.PI, index: this.boats.length };
+      this.boats.push(boat);
+      // The prompt sits on the shore side so you can reach it from dry land.
+      const px = x - Math.cos(a) * 5.5, pz = z - Math.sin(a) * 5.5;
+      this.interact({
+        x: px, y: WORLD.seaLevel, z: pz, r: 6.5, kind: 'boat',
+        label: 'Take the boat', data: { boat },
+      });
+    });
+
+    // ---- helipads
+    const pads = [
+      { id: 'town', dx: 44, dz: -34 },
+      { id: 'viewpoint', dx: 0, dz: 16 },
+      { id: 'lighthouse', dx: -18, dz: 14 },
+    ];
+    pads.forEach((p, i) => {
+      const loc = this.L.get(p.id);
+      if (!loc) return;
+      const spot = this.safeSpot(loc.x + p.dx, loc.z + p.dz);
+      const y = this.ground(spot.x, spot.z);
+      if (y < 1.2) return;
+      this.place(P.makeHelipad(), spot.x, y, spot.z, 0);
+      const model = makeHeliModel([0x2b6cb0, 0xd94f3d, 0x2f2f35][i % 3], i + 5);
+      model.position.set(spot.x, y, spot.z);
+      model.rotation.y = this.rng() * 6.28;
+      this.dynamic.add(model);
+      const heli = { model, x: spot.x, z: spot.z, y, heading: model.rotation.y, index: this.helis.length };
+      this.helis.push(heli);
+      this.interact({
+        x: spot.x + 3.4, y, z: spot.z, r: 4.6, kind: 'heli',
+        label: 'Fly the helicopter', data: { heli },
+      });
+      this.lightPool.add({ x: spot.x, y: 1.4, z: spot.z, color: 0xff5a4a, intensity: 0.8, distance: 18, night: true });
     });
   }
 
@@ -1294,13 +1388,22 @@ export class World {
   buildHouses() {
     const m = M();
     const t = this.L.get('town');
+    // Every house on the island can be walked into. Each one gets its own
+    // interior id, a layout and a palette, so they are not the same room five
+    // times over.
     const spots = [
-      { x: t.x + 40, z: t.z + 26, ry: -0.7, style: 'cottage', wall: m.plasterCream, enter: 'cottage' },
-      { x: t.x - 42, z: t.z + 30, ry: 0.8, style: 'modern', wall: m.plasterWhite, balcony: true },
-      { x: t.x - 46, z: t.z - 26, ry: 2.3, style: 'cottage', wall: m.plasterSage },
-      { x: t.x + 34, z: t.z - 30, ry: -2.2, style: 'modern', wall: m.plasterBlue, balcony: true },
-      { x: t.x + 8, z: t.z + 56, ry: 0.2, style: 'cottage', wall: m.plasterRose },
+      { x: t.x + 40, z: t.z + 26, ry: -0.7, style: 'cottage', wall: m.plasterCream, enter: 'cottage',
+        name: 'the cottage', layout: 'cottage', palette: 'cream' },
+      { x: t.x - 42, z: t.z + 30, ry: 0.8, style: 'modern', wall: m.plasterWhite, balcony: true,
+        enter: 'loft', name: 'the white house', layout: 'loft', palette: 'white' },
+      { x: t.x - 46, z: t.z - 26, ry: 2.3, style: 'cottage', wall: m.plasterSage,
+        enter: 'greenhome', name: 'the green house', layout: 'family', palette: 'sage' },
+      { x: t.x + 34, z: t.z - 30, ry: -2.2, style: 'modern', wall: m.plasterBlue, balcony: true,
+        enter: 'bluehome', name: 'the blue house', layout: 'studio', palette: 'blue' },
+      { x: t.x + 8, z: t.z + 56, ry: 0.2, style: 'cottage', wall: m.plasterRose,
+        enter: 'rosehome', name: 'the pink house', layout: 'family', palette: 'rose' },
     ];
+    this.homes = [];
     for (const s of spots) {
       const h = BLD.makeHouse({
         w: 7 + this.rng() * 2, d: 6 + this.rng() * 1.5, h: 3.2,
@@ -1318,9 +1421,12 @@ export class World {
         const out = { x: s.x + d.x * cos + (d.z - 3.4) * sin, z: s.z - d.x * sin + (d.z - 3.4) * cos };
         this.interact({
           id: 'house-' + s.enter, x: dw.x, z: dw.z, r: 4.2, kind: 'enter',
-          label: 'Enter the cottage', data: { interior: s.enter },
+          label: `Enter ${s.name}`, data: { interior: s.enter },
         });
-        this.houseDoor = { x: out.x, z: out.z, yaw: s.ry + Math.PI };
+        this.homes.push({ id: s.enter, name: s.name, layout: s.layout, palette: s.palette,
+          door: { x: out.x, z: out.z, yaw: s.ry + Math.PI } });
+        this.arrivals.set(s.enter, { x: out.x, z: out.z, yaw: s.ry + Math.PI });
+        if (s.enter === 'cottage') this.houseDoor = { x: out.x, z: out.z, yaw: s.ry + Math.PI };
       }
     }
 
@@ -1360,6 +1466,75 @@ export class World {
   }
 
   /* ------------------------------------------------------- vegetation */
+
+  /**
+   * Furnish one house. Three layouts and five palettes between them, so the
+   * houses you can walk into are not the same room repeated — a loft is one
+   * open space, a family house has a proper sitting room, a studio is small and
+   * dense. Every one has somewhere to sit together and something to find.
+   */
+  _furnishHome(mk, home) {
+    const m = M();
+    const palettes = {
+      cream: { wall: m.plasterCream, rug: m.fabricRose, floor: m.plank },
+      white: { wall: m.plasterWhite, rug: m.fabricBlue, floor: m.plankWorn },
+      sage: { wall: m.plasterSage, rug: m.fabricSage || m.fabricBlue, floor: m.plank },
+      blue: { wall: m.plasterBlue, rug: m.fabricBlue, floor: m.plankWorn },
+      rose: { wall: m.plasterRose, rug: m.fabricRose, floor: m.plank },
+    };
+    const p = palettes[home.palette] || palettes.cream;
+    const big = home.layout === 'loft';
+    const w = big ? 11 : home.layout === 'studio' ? 8 : 9.5;
+    const d = big ? 9 : home.layout === 'studio' ? 7 : 8;
+    const { ox, oz } = mk(home.id, { w, d, h: big ? 3.6 : 3.2, floor: p.floor, wall: p.wall });
+
+    const sofaZ = oz + (big ? 1.0 : 1.4);
+    this.place(P.makeSofa(big ? 2.6 : 2.2), ox - w * 0.2, sofaZ, 0, { y: 0 });
+    this.place(P.makeTable(1.5, 0.95, 0.5), ox - w * 0.2, sofaZ - 1.8, 0, { y: 0 });
+    this.place(P.makeRug(3.2, 2.3, p.rug), ox - w * 0.2, sofaZ - 0.7, 0, { y: 0, noCollide: true });
+    this.place(P.makeKitchen(), ox + w * 0.26, oz + d * 0.42, Math.PI, { y: 0 });
+    this.place(P.makeIndoorLamp(), ox + w * 0.4, oz - d * 0.34, 0, { y: 0 });
+    this.place(P.makeShelf(), ox - w * 0.44, oz - d * 0.2, Math.PI / 2, { y: 0 });
+
+    if (home.layout === 'family') {
+      this.place(P.makeBed(), ox + w * 0.24, oz - d * 0.22, -Math.PI / 2, { y: 0 });
+      this.place(P.makeTable(1.1, 1.1, 0.74, true), ox + w * 0.05, oz + d * 0.12, 0, { y: 0 });
+      for (const sx of [-1, 1]) {
+        this.place(P.makeChair(), ox + w * 0.05 + sx * 1.05, oz + d * 0.12, sx > 0 ? Math.PI / 2 : -Math.PI / 2, { y: 0 });
+      }
+      this.place(P.makePlanter(0.9), ox - w * 0.42, oz + d * 0.38, 0, { y: 0 });
+    } else if (home.layout === 'loft') {
+      this.place(P.makeBed(), ox + w * 0.26, oz - d * 0.24, -Math.PI / 2, { y: 0 });
+      this.place(P.makeSofa(1.8), ox + w * 0.06, oz - d * 0.4, Math.PI, { y: 0 });
+      this.place(P.makePlanter(1.1), ox - w * 0.4, oz + d * 0.4, 0, { y: 0 });
+      this.place(P.makePlanter(0.8), ox + w * 0.42, oz + d * 0.06, 0, { y: 0 });
+    } else {
+      this.place(P.makeBed(), ox + w * 0.22, oz + d * 0.1, -Math.PI / 2, { y: 0 });
+      this.place(P.makePlanter(0.9), ox - w * 0.4, oz + d * 0.36, 0, { y: 0 });
+    }
+
+    // a window on the outside wall, so the room is not a sealed box
+    for (const sx of [-1, 1]) {
+      const g = P.grp();
+      g.add(P.B(m.windowLit, 2.4, 1.7, 0.12, 0, 0, 0));
+      this.place(g, ox + sx * w * 0.24, oz - d * 0.5, 0, { y: 1.7, noCollide: true });
+    }
+
+    this.interact({
+      x: ox - w * 0.2, y: 0, z: sofaZ, r: 1.9, kind: 'sit', label: 'Sit on the sofa',
+      data: { seat: { x: 0, y: 0.48, z: 0.5 }, yaw: Math.PI, couple: true, interior: home.id },
+    });
+    this.interact({
+      id: home.id + '-exit', x: ox, y: 0, z: oz - d * 0.45, r: 2.4, kind: 'exit',
+      label: 'Step outside', data: { to: home.id },
+    });
+    this.lightPool.add({ x: ox, y: 2.7, z: oz, color: 0xffd9a8, intensity: 2.0, distance: 16, always: true });
+    this.interiors.set(home.id, {
+      spawn: { x: ox, y: 0, z: oz - d * 0.32, yaw: Math.PI },
+      exitKey: home.id,
+    });
+    this.drop(this.rng() < 0.5 ? 'heart' : 'coin', ox - w * 0.32, oz - d * 0.3, 0.6);
+  }
 
   buildInteriors() {
     const m = M();
@@ -1417,6 +1592,12 @@ export class World {
         lines: [['Welcome to HelloCouple Café! What can I get you two?', ['A drink please', 'Just looking']],
                 ['Take your time. The window seat has the best view.', ['Thanks!']]],
       });
+    }
+
+    /* ---- every other house on the island ---- */
+    for (const home of this.homes || []) {
+      if (home.id === 'cottage') continue;      // the cottage is hand-furnished below
+      this._furnishHome(mk, home);
     }
 
     /* ---- cottage ---- */

@@ -90,6 +90,7 @@ export class Companion {
     if (this.sitting) {
       this.root.position.copy(this.pos);
       this.root.rotation.y = this.yaw;
+      ch.lookAt({ x: target.x, y: this.pos.y + 1.4, z: target.z }, this.yaw);
       ch.update(dt, { speed: 0, grounded: true, sitting: true });
       return;
     }
@@ -179,6 +180,8 @@ export class Companion {
 
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
+    // Look at the player when close or idle, ahead when hurrying.
+    ch.lookAt(this.speed > 3.6 ? null : { x: target.x, y: this.pos.y + 1.55, z: target.z }, this.yaw);
     ch.update(dt, {
       speed: this.speed, grounded: true, sitting: false,
       hold: holding ? -this.holdSide : 0,

@@ -47,7 +47,7 @@ function halfSection(hwB, hwT, y0, y1, rB, rT, A = 3) {
   return pts;
 }
 
-function ringOf(o) {
+export function ringOf(o) {
   const half = halfSection(o.hwB, o.hwT ?? o.hwB, o.y0, o.y1, o.rB ?? 0.06, o.rT ?? 0.12);
   const left = half.slice(1, -1).reverse().map(([x, y]) => [-x, y]);
   return half.concat(left);
@@ -55,7 +55,7 @@ function ringOf(o) {
 
 /** Sweep rings along Z into a closed solid. Caps get their own vertices so the
  *  ends stay sharp while the length of the body shades smoothly. */
-function sweep(rings) {
+export function sweep(rings) {
   const P = rings[0].pts.length;
   const R = rings.length;
   const pos = [], uv = [], idx = [];
@@ -99,7 +99,7 @@ function sweep(rings) {
 }
 
 /** Rounded box — used for bumpers, lights, mirrors and handles. */
-function roundBox(w, h, d, r = 0.04) {
+export function roundBox(w, h, d, r = 0.04) {
   const hw = w / 2, hh = h / 2, hd = d / 2;
   const rings = [];
   const inset = Math.min(r, hd * 0.9);

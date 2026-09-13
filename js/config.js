@@ -196,6 +196,10 @@ export const QUESTS = [
     trigger:'activity:coupleDrive', target:1, reward:{coins:80, hearts:45, xp:55} },
   { id:'saySomething', name:'Say Something', desc:'Speak to your partner out loud using the microphone (press V).',
     trigger:'activity:voice', target:1, reward:{hearts:35, xp:40} },
+  { id:'setSail', name:'Set Sail', desc:'Take a boat out on the water.',
+    trigger:'activity:boat', target:1, reward:{coins:70, hearts:30, xp:45} },
+  { id:'takeOff', name:'Take Off', desc:'Fly the helicopter from one of the pads.',
+    trigger:'activity:fly', target:1, reward:{coins:120, hearts:40, xp:80} },
   { id:'starGatherer', name:'Star Gatherer', desc:'Find 3 hidden stars around the island.',
     trigger:'collect:star', target:3, reward:{coins:250, hearts:100, xp:150} },
 ];
@@ -310,6 +314,8 @@ export const CONTROLS = [
   ['C', 'Emotes'],
   ['E at a car', 'Drive'],
   ['H', 'Hold hands'],
+  ['E at a boat', 'Sail'],
+  ['E at a helipad', 'Fly — Space up, Shift down'],
   ['Esc', 'Menu'],
 ];
 

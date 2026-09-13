@@ -26,7 +26,7 @@ export class UI {
       prompt: $('interact-prompt'), promptLabel: $('interact-label'),
       toasts: $('toast-stack'), banner: $('discovery-banner'), bannerTitle: $('db-title'), bannerSub: $('db-sub'),
       overlay: $('overlay'), ovBody: $('ov-body'), ovTabs: $('ov-tabs'),
-      voiceStrip: $('voice-strip'), voiceHeard: $('voice-heard'), voiceReply: $('voice-reply'),
+      spExtra: $('sp-extra'), voiceStrip: $('voice-strip'), voiceHeard: $('voice-heard'), voiceReply: $('voice-reply'),
       modal: $('modal'), modalCard: $('modal-card'),
       dialogue: $('dialogue'), dlgName: $('dlg-name'), dlgText: $('dlg-text'), dlgChoices: $('dlg-choices'),
       touch: $('touch-controls'), photo: $('photo-ui'), wheel: $('emote-wheel'),
@@ -172,9 +172,14 @@ export class UI {
     if (on) this.el.spName.textContent = name;
   }
 
-  setSpeed(kmh, frac) {
+  /** Speedometer. `extra` shows altitude when flying. */
+  setSpeed(kmh, frac, extra = null) {
     this.el.spKmh.textContent = Math.round(kmh);
     this.el.spFill.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
+    if (this.el.spExtra) {
+      this.el.spExtra.textContent = extra || '';
+      this.el.spExtra.classList.toggle('hidden', !extra);
+    }
   }
 
   showPrompt(label) {

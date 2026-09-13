@@ -34,8 +34,9 @@ import { QuestSystem } from './quests.js';
 import { Shop } from './shop.js';
 import { Inventory } from './inventory.js';
 import { MapSystem } from './map.js';
-import { FishingGame, BoatRide } from './minigames.js';
+import { FishingGame } from './minigames.js';
 import { Vehicle } from './vehicle.js';
+import { Boat, Helicopter, HELI_SPEC } from './craft.js';
 import { TrafficSystem, PedestrianSystem } from './traffic.js';
 import { AudioEngine } from './audio.js';
 import { UI } from './ui.js';
@@ -348,7 +349,20 @@ class Game {
       car.vehicle = v;
       return v;
     });
-    this.boat = new BoatRide(this.terrain, WORLD.seaLevel);
+    this.boats = (this.world.boats || []).map(b => {
+      const v = new Boat(b.model, this.terrain, this.water, WORLD.seaLevel);
+      v.place(b.x, b.z, b.heading);
+      b.craft = v;
+      return v;
+    });
+    this.helis = (this.world.helis || []).map(h => {
+      const v = new Helicopter(h.model, this.terrain, this.physics);
+      v.place(h.x, h.z, h.heading);
+      h.craft = v;
+      return v;
+    });
+    this.sailing = null;
+    this.flying = null;
     this._setupVoice();
     this.remote = new RemotePlayers(this.scene, this.voiceChat?.available ? this.voiceChat : NullNetwork);
 
@@ -482,8 +496,13 @@ class Game {
       return;
     }
 
-    if (this.boat.active) {
-      this._updateBoat(dt, move, interact);
+    if (this.sailing) {
+      this._updateBoat(dt, move, interact, c);
+      return;
+    }
+
+    if (this.flying) {
+      this._updateHeli(dt, move, interact, c, jump);
       return;
     }
 
@@ -513,6 +532,13 @@ class Game {
 
     this._updateVoice(c);
     this._updateHandHolding(c);
+    // The player looks at whatever they are close enough to interact with, and
+    // at their partner otherwise.
+    const gaze = this._prompt
+      ? { x: this._prompt.x, y: (this._prompt.y ?? this.player.pos.y) + 1.4, z: this._prompt.z }
+      : (this.companion.enabled ? { x: this.companion.pos.x, y: this.companion.pos.y + 1.5, z: this.companion.pos.z } : null);
+    const d = gaze ? Math.hypot(gaze.x - this.player.pos.x, gaze.z - this.player.pos.z) : 99;
+    this.player.character.lookAt(d < 9 ? gaze : null, this.player.yaw);
     this.companion.update(dt, this.player.pos, this.player.speed, { yaw: this.player.yaw });
     this.camRig.update(dt, this.player.pos);
 
@@ -756,7 +782,15 @@ class Game {
     else this.companion.root.visible = false;
   }
 
+  /** You can only be in one thing at a time. */
+  _leaveAnyCraft() {
+    if (this.driving) this._exitCar();
+    if (this.sailing) { this.sailing = null; this.ui.setDriving(false); }
+    if (this.flying) { this.flying = null; this.ui.setDriving(false); }
+  }
+
   _enterCar(car) {
+    this._leaveAnyCraft();
     const v = car.vehicle;
     if (!v) return;
     this.driving = v;
@@ -800,31 +834,90 @@ class Game {
     this.audio.ui('close');
   }
 
-  _updateBoat(dt, move, interact) {
-    this.boat.update(dt, { x: move.x, y: move.y });
-    const p = this.boat.pos;
-    this.player.pos.set(p.x, WORLD.seaLevel + 1.0, p.z);
-    this.player.yaw = this.boat.heading;
-    this.player.root.position.copy(this.player.pos);
-    this.player.root.rotation.y = this.boat.heading;
-    this.player.character.update(dt, { speed: 0, grounded: true, sitting: true });
-    this.companion.pos.set(p.x - Math.sin(this.boat.heading) * 1.2, WORLD.seaLevel + 1.0, p.z - Math.cos(this.boat.heading) * 1.2);
-    this.companion.root.position.copy(this.companion.pos);
-    this.companion.root.rotation.y = this.boat.heading;
-    this.companion.character.update(dt, { speed: 0, grounded: true, sitting: true });
-    this.camRig.update(dt, this.player.pos, { lag: 5 });
-    this.ui.showPrompt('Leave the boat');
+  _updateBoat(dt, move, interact, c) {
+    const b = this.sailing;
+    b.update(dt, { throttle: move.y, steer: move.x, brake: c.brakeHeld });
+    this.player.pos.set(b.pos.x, b.model.position.y + 1.0, b.pos.z);
+    this.player.yaw = b.heading;
+    this._seatRiders(dt, b);
+
+    const frac = Math.abs(b.speed) / b.spec.maxSpeed;
+    this.camRig.targetDistance = 11 + frac * 5;
+    this.camRig.pitch = Math.max(this.camRig.pitch, 0.09);
+    this.camRig.update(dt, { x: b.pos.x, y: b.model.position.y + 1.1, z: b.pos.z }, { lag: 6 });
+    this.ui.setSpeed(b.kmh, frac);
+    this.save.stat('distance', Math.abs(b.speed) * dt);
+    this._area = this.map.currentArea(b.pos);
+    this.collectibles.update(dt, this.time, b.pos, 3.4);
+
+    this.ui.showPrompt('Step off the boat');
     if (interact) this._exitBoat();
   }
 
+  /**
+   * Flying. The collective is on jump/brake, the cyclic on the movement axes.
+   * The camera pulls back and looks down as you climb, because a helicopter is
+   * only fun if you can see what you are flying over.
+   */
+  _updateHeli(dt, move, interact, c, jump) {
+    const h = this.flying;
+    h.update(dt, {
+      throttle: move.y, steer: move.x,
+      up: c.brakeHeld || c.keys?.has?.('Space') || jump,
+      down: c.isSprinting(),
+    });
+    this.player.pos.set(h.pos.x, h.pos.y + 1.0, h.pos.z);
+    this.player.yaw = h.heading;
+    this._seatRiders(dt, h);
+
+    const alt = clamp(h.altitude / 120, 0, 1);
+    this.camRig.targetDistance = 14 + alt * 10;
+    this.camRig.pitch = Math.max(this.camRig.pitch, 0.12 + alt * 0.12);
+    this.camRig.update(dt, { x: h.pos.x, y: h.pos.y + 1.6, z: h.pos.z }, { lag: 5 });
+    this.ui.setSpeed(h.kmh, h.kmh / (HELI_SPEC.maxSpeed * 3.6), `${Math.round(h.altitude)} m`);
+    this.save.stat('distance', Math.hypot(h.vel.x, h.vel.z) * dt);
+
+    const found = this.map.checkDiscovery(h.pos);
+    for (const def of found) {
+      this.audio.ui('discover');
+      this.ui.discovery(def.title, def.sub);
+      this.quests.visited(def.id);
+      this.save.addXp(35);
+    }
+    this._area = this.map.currentArea(h.pos);
+
+    if (h.grounded) {
+      this.ui.showPrompt('Get out');
+      if (interact) this._exitHeli();
+    } else {
+      this.ui.showPrompt(`Altitude ${Math.round(h.altitude)} m — land to get out`);
+    }
+  }
+
+  /**
+   * Swap the CSS grade between a neutral day look, a warm golden-hour look and
+   * a cool night one. Only touches the DOM when the band actually changes.
+   */
+  _grade(state) {
+    const h = this.dayNight.time;
+    const band = state.night > 0.55 ? 'night'
+      : (h > 16.8 && h < 20.2) || (h > 5.2 && h < 7.6) ? 'warm' : '';
+    if (band === this._gradeBand) return;
+    this._gradeBand = band;
+    const el = this._gradeEl || (this._gradeEl = document.getElementById('grade'));
+    if (el) el.className = band;
+  }
+
   _updateWorldSystems(dt) {
-    const focus = this.driving ? this.driving.pos : (this.player ? this.player.pos : this.camera.position);
+    const focus = (this.driving || this.sailing || this.flying)?.pos
+      || (this.player ? this.player.pos : this.camera.position);
     this.dayNight.update(dt, focus, this.camera);
     this.weather.update(dt, focus);
     this.veg.setWind(0.45 + this.weather.values.wind * 0.5);
     this.veg.update(dt);
     this.water.update(dt, this.dayNight.state);
     this.renderer.setClearColor(this.dayNight.state.fogColor, 1);
+    this._grade(this.dayNight.state);
     this.world.update(dt, this.time, focus, this.dayNight.state.night);
     this.wildlife.update(dt, focus);
     this.npcSystem.update(dt, focus);
@@ -896,6 +989,7 @@ class Game {
   _proximity(isSitting) {
     if (isSitting) { this.ui.showPrompt('Stand up'); return; }
     const it = this.interaction.update(this.player.pos, this.player.yaw);
+    this._prompt = it;              // also drives where the player looks
     if (it) this.ui.showPrompt(it.label);
     else this.ui.hidePrompt();
   }
@@ -914,6 +1008,7 @@ class Game {
       case 'order': this._orderDrink(); break;
       case 'fish': this._startFishing(d.name); break;
       case 'boat': this._enterBoat(it); break;
+      case 'heli': this._enterHeli(it); break;
       case 'chest': this._openChest(it); break;
       case 'picnic': this._picnic(it); break;
       case 'telescope': this._telescope(d.name); break;
@@ -1078,29 +1173,80 @@ class Game {
   }
 
   _enterBoat(it) {
-    const b = it.data.boat;
+    const b = it.data?.boat?.craft;
     if (!b) return;
-    this.boat.enter(b, b.position.x, b.position.z, it.data.ang || 0);
-    this.ui.toast('Boat', 'Steer with the movement keys. Press E to step off.', 'rose');
-    this.save.addXp(10);
+    this._leaveAnyCraft();
+    this.toggleHandHolding(false);
+    this.sailing = b;
+    this.companion.sitting = true;
+    this.camRig.targetDistance = 11;
+    this.camRig.snap({ x: b.pos.x, y: b.model.position.y, z: b.pos.z }, b.heading + Math.PI);
+    this.ui.setDriving(true, 'Boat');
+    this.audio.ui('open');
+    this.save.flag('sailed');
+    this.quests.activity('boat');
+    this.save.addXp(14);
+    if (this.companion.enabled) this.quests.fire('activity:coupleDrive');
+    if (!this.save.state.flags.boatTip) {
+      this.save.flag('boatTip');
+      this.ui.toast('Out on the water', 'W/S for throttle, A/D to steer, Space to slow. E to step off near land.', 'rose');
+    }
   }
 
   _exitBoat() {
-    const b = this.boat.exit();
-    // step out onto the nearest walkable ground
-    let bestX = this.player.pos.x, bestZ = this.player.pos.z, found = false;
-    for (let r = 3; r < 60 && !found; r += 2.5) {
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const x = this.boat.pos.x + Math.cos(a) * r;
-        const z = this.boat.pos.z + Math.sin(a) * r;
-        if (this.terrain.height(x, z) > 0.6) { bestX = x; bestZ = z; found = true; break; }
-      }
+    const b = this.sailing;
+    if (!b) return;
+    const out = b.exitPoint();
+    if (this.terrain.height(out.x, out.z) < 0.6) {
+      this.ui.toast('Too far out', 'Bring her closer to shore before stepping off.');
+      return;
     }
-    this.player.teleport(bestX, bestZ, this.player.yaw);
+    this._leaveCraft(this.world.safeSpot(out.x, out.z), b.heading + Math.PI / 2);
+    this.sailing = null;
+  }
+
+  _enterHeli(it) {
+    const h = it.data?.heli?.craft;
+    if (!h) return;
+    this._leaveAnyCraft();
+    this.toggleHandHolding(false);
+    this.flying = h;
+    this.companion.sitting = true;
+    this.camRig.targetDistance = 14;
+    this.camRig.snap({ x: h.pos.x, y: h.pos.y, z: h.pos.z }, h.heading + Math.PI);
+    this.ui.setDriving(true, 'Helicopter');
+    this.audio.ui('open');
+    this.save.flag('flew');
+    this.quests.fire('activity:fly');
+    this.save.addXp(20);
+    if (this.companion.enabled) this.quests.fire('activity:coupleDrive');
+    if (!this.save.state.flags.flyTip) {
+      this.save.flag('flyTip');
+      this.ui.toast('Wait for the rotor', 'Space to climb, Shift to descend, W/S to fly, A/D to turn. Land before you get out.', 'rose');
+    }
+  }
+
+  _exitHeli() {
+    const h = this.flying;
+    if (!h) return;
+    if (!h.grounded) { this.ui.toast('Still airborne', 'Land first.'); return; }
+    const out = h.exitPoint();
+    this._leaveCraft(this.world.safeSpot(out.x, out.z), h.heading + Math.PI / 2);
+    this.flying = null;
+  }
+
+  /** Shared tail end of getting out of anything. */
+  _leaveCraft(spot, yaw) {
+    this.player.root.visible = true;
+    this.companion.root.visible = true;
+    this.companion.sitting = false;
+    this.player.root.rotation.set(0, yaw, 0);
+    this.player.teleport(spot.x, spot.z, yaw);
     this.companion.teleportNear(this.player.pos, this.player.yaw);
     this.camRig.snap(this.player.pos, this.player.yaw + Math.PI);
+    this.ui.setDriving(false);
     this.ui.hidePrompt();
+    this.audio.ui('close');
   }
 
   _openChest(it) {
@@ -1204,6 +1350,7 @@ class Game {
     const want = on !== undefined ? on : !this.photoMode;
     if (want === this.photoMode) return;
     this.photoMode = want;
+    document.body.classList.toggle('photo', want);
     this.ui.setPhotoMode(want);
     if (want) {
       this.freeCam.enter(this.camera.position, this.camRig.yaw + Math.PI, -this.camRig.pitch);
@@ -1271,6 +1418,8 @@ class Game {
 
   async fastTravel(id) {
     if (this.driving) this._exitCar();
+    else if (this.sailing) this._exitBoat();
+    else if (this.flying) this._exitHeli();
     const loc = this.locations.get(id);
     const def = LOCATIONS.find(l => l.id === id);
     if (!loc || !def || !this.save.isDiscovered(id) || !def.fastTravel) {

@@ -96,6 +96,8 @@ touches elements inside `#game-root`.
 | --- | --- |
 | `W` `A` `S` `D` / arrow keys | Move |
 | `E` at a car | Get in and drive (`E` again to get out) |
+| `E` at a boat | Take her out; `E` near shore to step off |
+| `E` at a helipad | Fly — `Space` climbs, `Shift` descends, land to get out |
 | Mouse move (or drag) | Look around |
 | Mouse wheel | Zoom the camera in and out |
 | `Shift` | Sprint |
@@ -250,6 +252,7 @@ game-hellocouple/
     ├── world.js            assembles the island and every location
     ├── city.js             downtown: streets, blocks, towers, furniture
     ├── vehicle.js          car models and arcade driving physics
+    ├── craft.js            speedboat and helicopter
     ├── traffic.js          instanced AI traffic and pedestrians
     ├── daynight.js         sky, sun, moon, stars, the whole lighting rig
     ├── weather.js          sunny / cloudy / rain
@@ -518,7 +521,48 @@ Collectibles and quests should stay client-authoritative for a cosmetic,
 non-competitive game like this one — there is nothing to cheat for — which keeps
 the server to a relay.
 
-## 11. Being a couple
+## 11. Getting around
+
+Four ways to travel, all entered the same way: walk up and press `E`.
+
+**Cars** are parked downtown and at every major location, so you are never
+stranded. **Boats** are moored in deep water off the pier and the three beaches;
+the prompt sits on the shore side so you can reach it from dry land, and you can
+only step off again where there is ground to step onto. **Helicopters** sit on
+marked pads at the town, the viewpoint and the lighthouse.
+
+Flying is deliberately forgiving: the rotor spools up over about two seconds,
+and once it is up to speed it exactly cancels gravity, so hands off is a hover
+and the collective is the only thing that climbs or descends. There is no
+autorotation and no stall — let go of everything and it settles. You cannot get
+out in mid-air.
+
+Your partner comes with you in all three: `_seatRiders()` rotates the seats
+declared in the model into the world every frame, so you can see each other
+through the glass.
+
+### Adding a vehicle
+
+Cars live in `vehicle.js`, boats and helicopters in `craft.js`. All three are
+built from the same swept-body machinery — a profile of rings along the length,
+each a rounded cross-section — so a new hull is a new list of rings, not a new
+renderer. Spawn it from `World.buildCraft()` (or `buildDrivableCars()`), give it
+an `interact({ kind })`, and handle that kind in `_tryInteract()`.
+
+## 12. Houses you can walk into
+
+Every house in the town can be entered, not just the cottage. `buildHouses()`
+gives each one an interior id, a layout and a palette; `_furnishHome()` builds
+the room from three layouts — a loft is one open space, a family house has a
+proper sitting room, a studio is small and dense — across five palettes. Each
+has a sofa you can sit on together, windows onto the outside, and something to
+find.
+
+Interiors are real rooms placed far outside the island at `INTERIOR_ORIGIN`,
+which is why `player.interior` exists: it skips the world-boundary clamp, the
+wading check and the terrain lookup while you are inside one.
+
+## 13. Being a couple
 
 Three things in the game are about the two of you rather than the island.
 
@@ -608,7 +652,7 @@ access on a secure origin.
 `RemotePlayers` drives it unchanged — joining a room already syncs position, yaw
 and emotes over the WebRTC data channel alongside the audio. See §10.
 
-## 12. Assets and licences
+## 14. Assets and licences
 
 - **Three.js** — MIT, vendored at `vendor/three/three.module.min.js` with its
   licence file alongside.
@@ -621,7 +665,7 @@ There are no third-party models, textures, fonts or audio files, so there is
 nothing to attribute beyond Three.js and nothing that can break from an expired
 CDN link. The UI uses the system font stack.
 
-## 13. Browser support
+## 15. Browser support
 
 Requires WebGL2 (Chrome/Edge 79+, Firefox 51+, Safari 15+, and their mobile
 equivalents). If WebGL is unavailable the game shows a clear message instead of

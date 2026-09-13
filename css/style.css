@@ -456,3 +456,40 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
+
+/* --------------------------------------------------------------- grading */
+/*
+ * A colour-grade and vignette pass done in CSS rather than in a render target.
+ * A real post-processing chain would mean a second framebuffer and a fullscreen
+ * shader every frame; this costs the GPU nothing, and on a phone that matters
+ * more than the extra control would.
+ */
+#grade {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(ellipse 140% 115% at 50% 45%,
+      rgba(255, 255, 255, 1) 55%,
+      rgba(247, 245, 244, 1) 80%,
+      rgba(224, 222, 228, 1) 100%);
+  transition: background 1.6s linear, opacity 1.6s linear;
+}
+#grade.warm {
+  background:
+    radial-gradient(ellipse 140% 115% at 50% 45%,
+      rgba(255, 253, 249, 1) 52%,
+      rgba(253, 243, 232, 1) 78%,
+      rgba(232, 216, 208, 1) 100%);
+}
+#grade.night {
+  background:
+    radial-gradient(ellipse 135% 110% at 50% 47%,
+      rgba(240, 244, 255, 1) 46%,
+      rgba(220, 228, 248, 1) 76%,
+      rgba(178, 188, 220, 1) 100%);
+}
+/* Photo mode wants the clean image. */
+body.photo #grade { opacity: 0; }
